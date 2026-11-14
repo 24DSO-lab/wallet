@@ -15,9 +15,9 @@
 
 ## Что подтверждено
 
-`wails doctor` на Windows 10 Pro (build 19045), amd64: «Your system is ready for Wails development». `go.sum` создан, зависимость Wails v2.17.0 зафиксирована в `go.mod`.
+`wails doctor` на Windows 10 Pro (build 19045), amd64: «Your system is ready for Wails development». `go.sum` создан, зависимость Wails v2.17.0 зафиксирована в `go.mod`. `wails build` на Windows (go1.27.3, Node 24.13.1) собрал `build/bin/wallet.exe` за 14,8 с, 15 ноября 2026.
 
 ## Открыто
 
 - **Node.** В окружении Dev 1 проверялась 22.x, на машине сборки 24.13.1. Закрепить в CI одну мажорную версию, когда появится настоящий `package.json` у Dev 8.
-- **`wails build`.** Первый запуск упал на отсутствии `frontend/package.json`. В этом PR добавлена заглушка (`frontend/package.json`, `build-placeholder.mjs`, `package-lock.json`, без зависимостей). Повторный `wails build` на Windows ещё не подтверждён. Заглушку заменяет Dev 8, она лежит в его зоне и нужна только до появления Vite.
+- **Заглушка фронтенда** (`frontend/package.json`, `build-placeholder.mjs`) временная, лежит в зоне Dev 8, он заменяет её на Vue 3 + Vite.
