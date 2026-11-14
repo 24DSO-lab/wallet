@@ -1,0 +1,29 @@
+# Сборка Go и Wails
+/build/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Фронтенд
+/frontend/node_modules/
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Данные приложения и секреты: в репозитории их быть не должно
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.keystore
+/keystore/
+/data/
+
+# Редакторы и ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
