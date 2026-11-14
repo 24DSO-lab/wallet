@@ -145,7 +145,7 @@ func TestAppError(t *testing.T) {
 		t.Error("errors.Is must not match a different code")
 	}
 	var ae *domain.AppError
-	if !errors.As(err, &ae) || ae.Code != domain.CodeProviderUnavailable || ae.Cause != cause {
+	if !errors.As(err, &ae) || ae.Code != domain.CodeProviderUnavailable || !errors.Is(ae.Cause, cause) {
 		t.Errorf("errors.As gave %+v", ae)
 	}
 	if got := err.Error(); got != "provider_unavailable: boom" {
