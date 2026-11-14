@@ -1,0 +1,9 @@
+{
+  "name": "wallet-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Заглушка Dev 1, чтобы собиралось пустое приложение. Dev 8 заменяет её на Vue 3 + Vite.",
+  "scripts": {
+    "build": "node build-placeholder.mjs"
+  }
+}
