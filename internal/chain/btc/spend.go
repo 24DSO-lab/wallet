@@ -43,6 +43,7 @@ func NewSpendEngine(api *Esplora, scanner *Scanner, derive AddressDeriver) (*Spe
 	if api == nil || scanner == nil || derive == nil {
 		return nil, errors.New("btc: Esplora, scanner and address deriver are required")
 	}
+	if scanner.profile != api.Profile() { return nil, errors.New("btc: scanner and provider network profiles differ") }
 	return &SpendEngine{api:api, scanner:scanner, derive:derive, profile:api.Profile()}, nil
 }
 
@@ -292,9 +293,11 @@ func p2wpkhScript(address string,profile domain.Profile)([]byte,error){p,err:=wi
 // Finalize verifies each returned signature against its BIP143 digest and the
 // public key derived from the xpub/path, then assembles the P2WPKH witness.
 func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.Signed,error) {
+	if p.Network != domain.NetworkBitcoin || p.Asset != domain.BTC { return ports.Signed{}, ErrInvalidDraft }
 	var d spendDraft
 	dec:=json.NewDecoder(bytes.NewReader(p.Draft));dec.DisallowUnknownFields()
 	if err:=dec.Decode(&d);err!=nil{return ports.Signed{},ErrInvalidDraft}
+	canonical,err:=json.Marshal(d);if err!=nil||!bytes.Equal(canonical,p.Draft){return ports.Signed{},ErrInvalidDraft}
 	if err:=validateSpendDraft(d,e.derive);err!=nil{return ports.Signed{},err}
 	raw,err:=hex.DecodeString(d.UnsignedTx);if err!=nil{return ports.Signed{},err}
 	reqs,err:=digestRequests(d,raw,e.derive);if err!=nil{return ports.Signed{},err}
