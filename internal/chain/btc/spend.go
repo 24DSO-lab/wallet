@@ -327,3 +327,116 @@ func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
 	return out.Bytes(),nil
 }
 func readCompactSize(b []byte)(uint64,int,error){if len(b)<1{return 0,0,ErrInvalidDraft};switch b[0]{case 0xfd:if len(b)<3{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint16(b[1:3])),3,nil;case 0xfe:if len(b)<5{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint32(b[1:5])),5,nil;case 0xff:if len(b)<9{return 0,0,ErrInvalidDraft};return binary.LittleEndian.Uint64(b[1:9]),9,nil;default:return uint64(b[0]),1,nil}}
+
+
+// NewAdapter constructs the complete Bitcoin ChainAdapter using the shared
+// Esplora provider and the repository's public-only BIP32 implementation.
+func NewAdapter(api *Esplora) (*SpendEngine, error) {
+	scanner, err := NewHDScanner(api)
+	if err != nil { return nil, err }
+	return NewSpendEngine(api, scanner, HDAddressDeriver{})
+}
+
+var _ ports.ChainAdapter = (*SpendEngine)(nil)
+
+func (e *SpendEngine) Network() domain.Network { return domain.NetworkBitcoin }
+
+func (e *SpendEngine) ValidateAddress(address string) error {
+	return ValidateAddress(e.profile, address)
+}
+
+func (e *SpendEngine) AddressFromPublicKey([]byte) (string, error) {
+	return "", errors.New("btc: addresses must be derived from the account xpub")
+}
+
+func (e *SpendEngine) Refresh(ctx context.Context, wallet domain.PublicWallet, asset domain.Asset) (ports.Snapshot, error) {
+	return e.scanner.Refresh(ctx, wallet, asset)
+}
+
+// Broadcast verifies the locally computed txid before the one-shot Esplora
+// POST. An ambiguous network failure is intentionally not retried.
+func (e *SpendEngine) Broadcast(ctx context.Context, signed ports.Signed) (domain.TxID, error) {
+	if signed.Network != domain.NetworkBitcoin || !validTxID(string(signed.TxID)) {
+		return "", domain.NewError(domain.CodeInvalidInput, errors.New("btc: invalid signed transaction metadata"))
+	}
+	stripped, err := stripWitness(signed.Raw)
+	if err != nil { return "", err }
+	hash := sha256d(stripped)
+	reversed := make([]byte, 32)
+	for i := range hash { reversed[i] = hash[31-i] }
+	localID := strings.ToLower(hex.EncodeToString(reversed))
+	if localID != strings.ToLower(string(signed.TxID)) {
+		return "", domain.NewError(domain.CodeVerificationFailed, errors.New("btc: signed transaction id mismatch"))
+	}
+	remoteID, err := e.api.BroadcastRaw(ctx, signed.Raw)
+	if err != nil { return "", err }
+	if remoteID != localID {
+		return "", domain.NewError(domain.CodeProviderBadResponse, errors.New("btc: provider returned a different transaction id"))
+	}
+	return domain.TxID(localID), nil
+}
+
+func (e *SpendEngine) Status(ctx context.Context, id domain.TxID) (ports.TxStatus, error) {
+	if !validTxID(string(id)) { return ports.TxStatus{}, domain.NewError(domain.CodeInvalidInput, ErrInvalidTxID) }
+	status, err := e.api.GetTransactionStatus(ctx, string(id))
+	if err != nil { return ports.TxStatus{}, err }
+	if !status.Confirmed { return ports.TxStatus{State:domain.TxPending}, nil }
+	if status.BlockHeight == 0 { return ports.TxStatus{}, ErrMalformedResponse }
+	tip, err := e.api.GetTipHeight(ctx)
+	if err != nil { return ports.TxStatus{}, err }
+	if status.BlockHeight > tip { return ports.TxStatus{}, ErrMalformedResponse }
+	depth := tip - status.BlockHeight + 1
+	if depth > uint64(^uint32(0)) { depth = uint64(^uint32(0)) }
+	return ports.TxStatus{State:domain.TxConfirmed, BlockHeight:status.BlockHeight, Confirmations:uint32(depth)}, nil
+}
+
+// stripWitness parses a SegWit serialization and returns the canonical
+// non-witness serialization used for txid calculation.
+func stripWitness(raw []byte) ([]byte, error) {
+	if len(raw) < 10 || raw[4] != 0 || raw[5] != 1 { return nil, ErrInvalidDraft }
+	pos := 6
+	inputCount, used, err := readCompactSize(raw[pos:])
+	if err != nil || inputCount == 0 || inputCount > 1000 { return nil, ErrInvalidDraft }
+	pos += used
+	var base bytes.Buffer
+	base.Write(raw[:4])
+	writeCompactSize(&base, inputCount)
+	for i := uint64(0); i < inputCount; i++ {
+		start := pos
+		if pos+36 > len(raw) { return nil, ErrInvalidDraft }
+		pos += 36
+		scriptLen, n, err := readCompactSize(raw[pos:])
+		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
+		pos += n + int(scriptLen) + 4
+		if pos > len(raw) { return nil, ErrInvalidDraft }
+		base.Write(raw[start:pos])
+	}
+	outputCount, used, err := readCompactSize(raw[pos:])
+	if err != nil || outputCount == 0 || outputCount > 1000 { return nil, ErrInvalidDraft }
+	pos += used
+	writeCompactSize(&base, outputCount)
+	for i := uint64(0); i < outputCount; i++ {
+		start := pos
+		if pos+8 > len(raw) { return nil, ErrInvalidDraft }
+		pos += 8
+		scriptLen, n, err := readCompactSize(raw[pos:])
+		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
+		pos += n + int(scriptLen)
+		if pos > len(raw) { return nil, ErrInvalidDraft }
+		base.Write(raw[start:pos])
+	}
+	for i := uint64(0); i < inputCount; i++ {
+		items, n, err := readCompactSize(raw[pos:])
+		if err != nil || items > 100 { return nil, ErrInvalidDraft }
+		pos += n
+		for j := uint64(0); j < items; j++ {
+			size, n, err := readCompactSize(raw[pos:])
+			if err != nil || size > uint64(len(raw)) { return nil, ErrInvalidDraft }
+			pos += n + int(size)
+			if pos > len(raw) { return nil, ErrInvalidDraft }
+		}
+	}
+	if pos+4 != len(raw) { return nil, ErrInvalidDraft }
+	base.Write(raw[pos:])
+	return base.Bytes(), nil
+}
