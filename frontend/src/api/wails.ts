@@ -1,0 +1,6 @@
+import type{Api,Asset,Profile}from'./types'
+type Facade=Record<string,(...args:unknown[])=>Promise<unknown>>
+declare global{interface Window{go?:{app?:{App?:Facade}}}}
+function call(name:string,...args:unknown[]){const fn=window.go?.app?.App?.[name];if(!fn)throw Error('WAILS_METHOD_UNAVAILABLE:'+name);return fn(...args)}
+// DTO adapter is provisional: app/dto.go has not yet been published by Dev 7.
+export function wailsApi():Api{return{async session(){return await call('GetSession') as Awaited<ReturnType<Api['session']>>},async unlock(p){await call('Unlock',p)},async lock(){await call('Lock')},async wallets(){return await call('ListWallets') as Awaited<ReturnType<Api['wallets']>>},async create(n,s,p,phrase){return await call('CreateWallet',n,s,p,phrase) as Awaited<ReturnType<Api['create']>>},async receive(id,a:Asset){return await call('GetReceiveAddress',id,a) as string},async history(id,a){return await call('GetHistory',id,a) as Awaited<ReturnType<Api['history']>>},async prepare(id,a,to,amount){return await call('PrepareSend',id,a,to,amount) as Awaited<ReturnType<Api['prepare']>>},async confirm(id,p,phrase){await call('ConfirmSend',id,p,phrase)},async profile(p:Profile){await call('SetProfile',p)},async timeout(n){await call('SetLockTimeout',n)},async rename(id,n){await call('RenameWallet',id,n)},async backup(p){await call('CreateBackup',p)}}}

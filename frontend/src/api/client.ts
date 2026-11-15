@@ -1,0 +1,1 @@
+import{mockApi}from'./mock';import{wailsApi}from'./wails';export const api=import.meta.env.VITE_WALLET_API==='wails'?wailsApi():mockApi()
