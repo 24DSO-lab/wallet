@@ -44,7 +44,7 @@ func NewSpendEngine(api *Esplora, scanner *Scanner, derive AddressDeriver) (*Spe
 	if api == nil || scanner == nil || derive == nil {
 		return nil, errors.New("btc: Esplora, scanner and address deriver are required")
 	}
-	if scanner.profile != api.Profile() { return nil, errors.New("btc: scanner and provider network profiles differ") }
+	if scanner.profile != api.Profile() || scanner.api != api { return nil, errors.New("btc: scanner and provider configuration differ") }
 	return &SpendEngine{api:api, scanner:scanner, derive:derive, profile:api.Profile()}, nil
 }
 
@@ -299,6 +299,7 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	var d spendDraft
 	dec:=json.NewDecoder(bytes.NewReader(p.Draft));dec.DisallowUnknownFields()
 	if err:=dec.Decode(&d);err!=nil{return ports.Signed{},ErrInvalidDraft}
+	if d.Profile != e.profile { return ports.Signed{}, ErrInvalidDraft }
 	canonical,err:=json.Marshal(d);if err!=nil||!bytes.Equal(canonical,p.Draft){return ports.Signed{},ErrInvalidDraft}
 	if err:=validateSpendDraft(d,e.derive);err!=nil{return ports.Signed{},err}
 	raw,err:=hex.DecodeString(d.UnsignedTx);if err!=nil{return ports.Signed{},err}
@@ -306,7 +307,7 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	if len(sigs)!=len(reqs){return ports.Signed{},ErrInvalidSignature}
 	witnesses:=make([][][]byte,len(sigs))
 	for i,sig:=range sigs{
-		if len(sig.PubKey)!=33{return ports.Signed{},ErrInvalidSignature}
+		if len(sig.PubKey)!=33 || sig.Sig[64] > 1 {return ports.Signed{},ErrInvalidSignature}
 		path,err:=hd.ParsePath(d.Inputs[i].Path);if err!=nil{return ports.Signed{},err}
 		account,profile,err:=hd.ParsePublicKey(d.Xpub);if err!=nil||profile!=d.Profile{return ports.Signed{},ErrInvalidDraft}
 		branch,err:=account.Derive(path[3]);if err!=nil{return ports.Signed{},err}
