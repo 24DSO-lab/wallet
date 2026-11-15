@@ -54,7 +54,7 @@ func decodeWitnessAddress(s string) (string, byte, []byte, error) {
 	hrp := s[:sep]
 	data := make([]byte, len(s)-sep-1)
 	for i, c := range []byte(s[sep+1:]) {
-		if charsetRev[c] == 0xff {
+		if c >= 128 || charsetRev[c] == 0xff {
 			return "", 0, nil, ErrInvalidAddress
 		}
 		data[i] = charsetRev[c]
