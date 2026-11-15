@@ -142,7 +142,9 @@ func evaluateSelection(candidates []selectionCandidate, indexes []int, total, ta
 		fee, err := domain.AmountFromUint64(remainder)
 		if err != nil { return Selection{}, 0, false }
 		vbytes := estimateVBytes(inputCount, 1)
-		return Selection{UTXOs: selectedUTXOs(candidates, indexes), Fee: fee, HasChange: false, VBytes: vbytes}, remainder-feeWithChange, true
+		feeWithoutChange, ok := estimateFee(inputCount, 1, rate)
+		if !ok { return Selection{}, 0, false }
+		return Selection{UTXOs: selectedUTXOs(candidates, indexes), Fee: fee, HasChange: false, VBytes: vbytes}, remainder-feeWithoutChange, true
 	}
 	changeAmount, err := domain.AmountFromUint64(change)
 	if err != nil { return Selection{}, 0, false }
