@@ -282,6 +282,7 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 	}, nil
 }
 
+
 // NewHDScanner wires the scanner to the repository's BIP32 public-key
 // implementation. The supplied xpub is the only key material it consumes.
 func NewHDScanner(api *Esplora) (*Scanner, error) {
