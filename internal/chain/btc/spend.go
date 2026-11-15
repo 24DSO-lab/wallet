@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/hd"
@@ -164,6 +165,7 @@ func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
 	}
 	if len(d.Inputs) > 1000 || len(d.Outputs) > 2 { return fail(errors.New("transaction size limits exceeded")) }
 	if err := validateSpendDraft(d, e.derive); err != nil { return fail(err) }
+	if err := e.verifyLiveUTXOs(d); err != nil { return fail(err) }
 	raw, err := hex.DecodeString(d.UnsignedTx)
 	if err != nil { return fail(err) }
 	expectedDigests, err := digestRequests(d, raw, e.derive)
@@ -187,9 +189,9 @@ func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
 }
 
 func validateSpendDraft(d spendDraft, derive AddressDeriver) error {
+	if d.Version != btcDraftVersion || d.Fee == 0 || d.WalletID == "" || d.Xpub == "" { return ErrInvalidDraft }
 	if err := ValidateAddress(d.Profile, d.To); err != nil { return err }
 	if len(d.Outputs) == 0 || d.Outputs[0] != (spendOutput{Address:d.To, Value:d.Amount}) { return errors.New("recipient output mismatch") }
-	if d.Amount < DustThreshold { /* explicit warning is carried by Prepare */ }
 	inputTotal, outputTotal := new(big.Int), new(big.Int)
 	seen := make(map[string]struct{}, len(d.Inputs))
 	for _, in := range d.Inputs {
@@ -461,4 +463,32 @@ func stripWitness(raw []byte) ([]byte, error) {
 	if pos+4 != len(raw) { return nil, ErrInvalidDraft }
 	base.Write(raw[pos:])
 	return base.Bytes(), nil
+}
+
+
+// verifyLiveUTXOs checks that each claimed prevout is still listed as unspent
+// by Esplora. Verify has no context parameter in ChainAdapter, so this bounded
+// lookup uses its own deadline and caches one query per wallet address.
+func (e *SpendEngine) verifyLiveUTXOs(d spendDraft) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	byAddress := make(map[string]map[string]uint64)
+	for _, input := range d.Inputs {
+		known, ok := byAddress[input.Address]
+		if !ok {
+			utxos, err := e.api.GetUTXOs(ctx, input.Address)
+			if err != nil { return fmt.Errorf("btc: verify prevout availability: %w", err) }
+			known = make(map[string]uint64, len(utxos))
+			for _, u := range utxos {
+				key := strings.ToLower(u.TxID)+":"+fmt.Sprint(u.Vout)
+				known[key] = u.Value
+			}
+			byAddress[input.Address] = known
+		}
+		key := strings.ToLower(input.TxID)+":"+fmt.Sprint(input.Vout)
+		if value, exists := known[key]; !exists || value != input.Value {
+			return errors.New("input prevout is missing, spent or has a different value")
+		}
+	}
+	return nil
 }
