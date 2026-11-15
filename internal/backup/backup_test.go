@@ -238,6 +238,18 @@ func TestCreateKeystoreRules(t *testing.T) {
 			t.Error("expected error for a reserved device name")
 		}
 	})
+	t.Run("password change in progress is refused", func(t *testing.T) {
+		dir := t.TempDir()
+		writeKeystore(t, dir, map[string]string{"a.json": "-a"})
+		_ = os.Mkdir(filepath.Join(dir, "keystore", keystoreStageDir), 0o700)
+		dest := t.TempDir()
+		if _, err := newService(t, dir, fakeDB{version: testSchema}).Create(ctx, dest); !errors.Is(err, errKeystoreBusy) {
+			t.Fatalf("err = %v, want errKeystoreBusy", err)
+		}
+		if n := len(mustReadDir(t, dest)); n != 0 {
+			t.Errorf("failed Create left %d files", n)
+		}
+	})
 	t.Run("subdirectory is refused", func(t *testing.T) {
 		dir := t.TempDir()
 		writeKeystore(t, dir, map[string]string{"a.json": "-a"})

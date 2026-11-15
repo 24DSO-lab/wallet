@@ -41,7 +41,7 @@ func (l Limits) withDefaults() Limits {
 		l.MaxDBSize = 512 << 20
 	}
 	if l.MaxKeystoreFileSize <= 0 {
-		l.MaxKeystoreFileSize = 1 << 20
+		l.MaxKeystoreFileSize = 4 << 10
 	}
 	if l.MaxTotalSize <= 0 {
 		l.MaxTotalSize = 1 << 30
@@ -241,7 +241,16 @@ func (s *Service) Create(ctx context.Context, destDir string) (res Result, err e
 	return Result{}, errors.New("backup: could not choose a free archive name")
 }
 
-const checksumExt = ".sha256"
+const (
+	checksumExt = ".sha256"
+
+	// keystoreStageDir это каталог журнала смены пароля в keystore (Dev 2,
+	// internal/keystore/files.go). Пока он есть, копию делать нельзя.
+	keystoreStageDir = ".pwchange"
+)
+
+// errKeystoreBusy означает, что keystore сейчас меняется; попытку надо повторить позже.
+var errKeystoreBusy = errors.New("backup: keystore is being modified (password change in progress), try again later")
 
 // readKeystore читает файлы keystore целиком (они маленькие), проверяет каждый
 // и возвращает копии в памяти: проверенное и записанное в архив это одни и те же байты.
@@ -257,6 +266,11 @@ func (s *Service) readKeystore(ctx context.Context) ([]keystoreFile, error) {
 	var out []keystoreFile
 	for _, e := range entries {
 		name := e.Name()
+		if name == keystoreStageDir {
+			// Идёт (или оборвалась) смена пароля: часть файлов уже с новым
+			// паролем, часть ещё со старым. Такая копия была бы негодной.
+			return nil, errKeystoreBusy
+		}
 		if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".tmp") {
 			continue // временные файлы записи keystore
 		}
