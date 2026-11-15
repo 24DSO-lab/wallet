@@ -76,7 +76,8 @@ type spendDraft struct {
 func (e *SpendEngine) Prepare(ctx context.Context, in domain.SendIntent) (ports.Prepared, error) {
 	if err := in.Validate(); err != nil { return ports.Prepared{}, err }
 	if in.Asset != domain.BTC { return ports.Prepared{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: only BTC can be spent by this adapter")) }
-	if err := ValidateAddress(e.profile, in.To); err != nil { return ports.Prepared{}, err }\n\tif amount < DustThreshold { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: recipient output is dust")) }
+	if err := ValidateAddress(e.profile, in.To); err != nil { return ports.Prepared{}, err }
+\tif amount < DustThreshold { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: recipient output is dust")) }
 	amount, ok := in.Amount.Uint64()
 	if !ok || amount == 0 { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: amount outside satoshi range")) }
 
