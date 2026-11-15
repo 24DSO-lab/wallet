@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -101,5 +102,20 @@ func TestNewEsploraValidatesConfiguration(t *testing.T) {
 	}
 	if _, err := NewEsplora(&recordingProvider{}, domain.Profile("other")); err == nil {
 		t.Fatal("invalid profile must fail")
+	}
+}
+
+
+func TestConservativeFeeRate(t *testing.T) {
+	got, err := ConservativeFeeRate(FeeEstimates{"1": 12.5, "3": 8.25, "6": 5})
+	if err != nil { t.Fatal(err) }
+	if got != 8.25 { t.Fatalf("rate = %v, want 8.25", got) }
+
+	got, err = ConservativeFeeRate(FeeEstimates{"6": 5, "12": 3})
+	if err != nil { t.Fatal(err) }
+	if got != 5 { t.Fatalf("fallback rate = %v, want fastest target's 5", got) }
+
+	if _, err := ConservativeFeeRate(FeeEstimates{"3": math.NaN()}); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("NaN estimate must be rejected, got %v", err)
 	}
 }
