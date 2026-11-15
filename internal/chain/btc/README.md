@@ -24,6 +24,8 @@
   на наиболее быстрый доступный target.
 - `SelectCoins`: детерминированный bounded-search выбор P2WPKH UTXO, расчёт
   размера транзакции, сдача и порог пыли 294 sat.
+- `Scanner.Refresh`: сканирование receive/change с gap limit 20, сбор баланса,
+  UTXO и истории; HD-деривация подключается через интерфейс `AddressDeriver`.
 
 ## Broadcast safety
 
@@ -33,8 +35,9 @@
 
 ## Оставшаяся интеграция
 
-Сканирование BIP84 receive/change, gap limit 20 и `Refresh` подключаются через
-публичный интерфейс деривации xpub из `internal/hd`. Этот интерфейс должен
-быть согласован с Dev 2; пакет не реализует собственную копию BIP32.
+`Scanner.Refresh` уже реализует сканирование BIP84 receive/change с gap limit 20
+через интерфейс `AddressDeriver`. Для production-интеграции нужен тонкий адаптер
+к согласованному публичному API `internal/hd`; пакет не реализует собственную
+копию BIP32.
 Полный spending pipeline (BIP143, Verify, Finalize и RBF) остаётся следующим
-этапом после интеграции адресов и UTXO.
+этапом.
