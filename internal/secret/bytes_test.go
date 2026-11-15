@@ -53,7 +53,7 @@ func TestPrintingContainingStructs(t *testing.T) {
 				t.Errorf("%s with %s leaked the secret: %q", name, verb, got)
 			}
 			// Сырая печать среза выглядела бы как список чисел.
-			if strings.Contains(got, fmt.Sprint([]byte(sentinel))) {
+			if strings.Contains(got, fmt.Sprintf("%v", []byte(sentinel))) {
 				t.Errorf("%s with %s printed raw bytes: %q", name, verb, got)
 			}
 		}

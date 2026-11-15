@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Корневой пакет тянет Wails, которому на Linux нужны GTK и WebKit,
+          # поэтому полная сборка идёт на Windows, а на Linux проверяется всё
+          # остальное.
+          - os: windows-latest
+            pkgs: ./...
+          - os: ubuntu-latest
+            pkgs: ./internal/... ./app/...
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod # версия Go одна на всех, задаётся в go.mod
+      - run: go mod verify
+      - run: go build ${{ matrix.pkgs }}
+      - run: go vet ${{ matrix.pkgs }}
+      - run: go test -race -count=1 ${{ matrix.pkgs }}
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ${{ matrix.pkgs }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          # Линтер собирается текущим Go: готовый бинарник может быть собран
+          # более старой версией и отказаться читать go.mod.
+          install-mode: goinstall
+          args: ./internal/... ./app/...
+
+  # Включается, когда во frontend/ появляется package.json. Скрипты берутся из
+  # него: Dev 8 добавляет typecheck (vue-tsc), lint (ESLint), test (Vitest) и
+  # build; отсутствующие пропускаются (--if-present).
+  frontend:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('frontend/package.json') != '' }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck --if-present
+      - run: npm run lint --if-present
+      - run: npm test --if-present
+      - run: npm run build --if-present
