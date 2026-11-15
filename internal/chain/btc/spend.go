@@ -333,7 +333,7 @@ func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
 	if len(unsigned)<10{return nil,ErrInvalidDraft}
 	var out bytes.Buffer
 	out.Write(unsigned[:4]);out.WriteByte(0);out.WriteByte(1)
-	pos:=4;n,used,err:=readCompactSize(unsigned[pos:]);if err!=nil||n!=uint64(len(witnesses)){return nil,ErrInvalidDraft};pos+=used
+	pos:=4;n,used,err:=readCompactSize(unsigned[pos:]);if err!=nil||n!=uint64(len(witnesses)){return nil,ErrInvalidDraft};writeCompactSize(&out,n);pos+=used
 	// Copy serialized inputs and outputs (excluding version, marker/flag and locktime).
 	inputStart:=pos
 	for i:=uint64(0);i<n;i++{
