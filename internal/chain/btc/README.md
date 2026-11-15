@@ -41,3 +41,26 @@
 копию BIP32.
 Полный spending pipeline (BIP143, Verify, Finalize и RBF) остаётся следующим
 этапом.
+
+
+## Spending pipeline
+
+`NewAdapter(api)` builds the BTC `ports.ChainAdapter` around the shared Esplora
+client and public-only BIP32 deriver. `Prepare` refreshes UTXOs, applies the
+deterministic coin selector, uses the 3-block sat/vB estimate, and serializes a
+native P2WPKH transaction with RBF sequence `0xfffffffd`. Each input gets a
+BIP143 `SIGHASH_ALL` digest.
+
+The JSON draft is a transport envelope around the unsigned transaction and
+its prevout/path metadata. `Verify` decodes it afresh, enforces canonical
+encoding, derives every input and change address again from the account xpub,
+rebuilds the unsigned serialization and BIP143 requests, and checks the
+confirmation summary against the parsed transaction. `Finalize` independently
+recomputes digests, verifies each secp256k1 signature and derived compressed
+public key, then assembles the P2WPKH witness. `Broadcast` checks the txid
+locally before its single non-idempotent POST; `Status` reports pending or
+confirmed state and confirmation depth.
+
+The adapter never receives seed or private keys. Signing requests are passed
+to `ports.Keystore.Sign`, which derives the private key and checks the
+expected address before signing. RBF is enabled from the first version.
