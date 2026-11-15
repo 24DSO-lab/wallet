@@ -294,3 +294,17 @@ func ConservativeFeeRate(estimates FeeEstimates) (float64, error) {
 	}
 	return bestRate, nil
 }
+
+
+// GetTipHeight returns the current best-chain height.
+func (e *Esplora) GetTipHeight(ctx context.Context) (uint64, error) {
+	resp, err := e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: "/blocks/tip/height"})
+	if err != nil {
+		return 0, err
+	}
+	height, err := strconv.ParseUint(strings.TrimSpace(string(resp.Body)), 10, 64)
+	if err != nil {
+		return 0, ErrMalformedResponse
+	}
+	return height, nil
+}
