@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/hd"
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
 func TestEncodeP2WPKHAddressRoundTrip(t *testing.T) {

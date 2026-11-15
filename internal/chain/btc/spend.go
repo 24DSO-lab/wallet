@@ -44,7 +44,7 @@ func NewSpendEngine(api *Esplora, scanner *Scanner, derive AddressDeriver) (*Spe
 	if api == nil || scanner == nil || derive == nil {
 		return nil, errors.New("btc: Esplora, scanner and address deriver are required")
 	}
-	if scanner.profile != api.Profile() { return nil, errors.New("btc: scanner and provider network profiles differ") }
+	if scanner.profile != api.Profile() || scanner.api != api { return nil, errors.New("btc: scanner and provider configuration differ") }
 	return &SpendEngine{api:api, scanner:scanner, derive:derive, profile:api.Profile()}, nil
 }
 
@@ -147,7 +147,7 @@ func mustUint64(a domain.Amount) uint64 { v, _ := a.Uint64(); return v }
 // Verify deliberately decodes and validates Draft from scratch. It does not
 // trust Prepared.Digests, Summary, Fee, or any other cached display field.
 func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
-	fail := func(err error) error { return domain.NewError(domain.CodeVerificationFailed, fmt.Errorf("%w: %v", ErrInvalidDraft, err)) }
+	fail := func(err error) error { return domain.NewError(domain.CodeVerificationFailed, fmt.Errorf("%w: %w", ErrInvalidDraft, err)) }
 	if p.Network != domain.NetworkBitcoin || p.Asset != domain.BTC || in.Asset != domain.BTC { return fail(errors.New("network or asset mismatch")) }
 	if _, ok := in.Amount.Uint64(); !ok { return fail(errors.New("amount outside satoshi range")) }
 	if err := in.Validate(); err != nil { return fail(err) }
@@ -241,7 +241,7 @@ func digestRequests(d spendDraft, raw []byte, derive AddressDeriver) ([]ports.Di
 		txid, _ := hex.DecodeString(in.TxID)
 		var pre bytes.Buffer
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(2))
-		pre.Write(hashPrevouts); pre.Write(hashSequence)
+		pre.Write(hashPrevouts[:]); pre.Write(hashSequence[:])
 		for j:=len(txid)-1;j>=0;j-- { pre.WriteByte(txid[j]) }
 		_ = binary.Write(&pre, binary.LittleEndian, in.Vout)
 		program, err := witnessProgram(in.Address, d.Profile); if err != nil { return nil, err }
@@ -250,7 +250,7 @@ func digestRequests(d spendDraft, raw []byte, derive AddressDeriver) ([]ports.Di
 		writeCompactSize(&pre, uint64(len(scriptCode))); pre.Write(scriptCode)
 		_ = binary.Write(&pre, binary.LittleEndian, in.Value)
 		_ = binary.Write(&pre, binary.LittleEndian, btcSequenceRBF)
-		pre.Write(hashOutputs)
+		pre.Write(hashOutputs[:])
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(0))
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(btcSighashAll))
 		digest := sha256d(pre.Bytes())
@@ -299,6 +299,7 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	var d spendDraft
 	dec:=json.NewDecoder(bytes.NewReader(p.Draft));dec.DisallowUnknownFields()
 	if err:=dec.Decode(&d);err!=nil{return ports.Signed{},ErrInvalidDraft}
+	if d.Profile != e.profile { return ports.Signed{}, ErrInvalidDraft }
 	canonical,err:=json.Marshal(d);if err!=nil||!bytes.Equal(canonical,p.Draft){return ports.Signed{},ErrInvalidDraft}
 	if err:=validateSpendDraft(d,e.derive);err!=nil{return ports.Signed{},err}
 	raw,err:=hex.DecodeString(d.UnsignedTx);if err!=nil{return ports.Signed{},err}
@@ -306,7 +307,7 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	if len(sigs)!=len(reqs){return ports.Signed{},ErrInvalidSignature}
 	witnesses:=make([][][]byte,len(sigs))
 	for i,sig:=range sigs{
-		if len(sig.PubKey)!=33{return ports.Signed{},ErrInvalidSignature}
+		if len(sig.PubKey)!=33 || sig.Sig[64] > 1 {return ports.Signed{},ErrInvalidSignature}
 		path,err:=hd.ParsePath(d.Inputs[i].Path);if err!=nil{return ports.Signed{},err}
 		account,profile,err:=hd.ParsePublicKey(d.Xpub);if err!=nil||profile!=d.Profile{return ports.Signed{},ErrInvalidDraft}
 		branch,err:=account.Derive(path[3]);if err!=nil{return ports.Signed{},err}
@@ -324,32 +325,103 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	return ports.Signed{Network:domain.NetworkBitcoin,TxID:domain.TxID(hex.EncodeToString(reversed)),Raw:signedRaw},nil
 }
 
-func encodeDERSignature(r,s []byte)[]byte{
-	integer:=func(v []byte)[]byte{for len(v)>1&&v[0]==0{v=v[1:]};out:=append([]byte(nil),v...);if out[0]&0x80!=0{out=append([]byte{0},out...)};return append([]byte{0x02,byte(len(out))},out...)}
-	ri,si:=integer(r),integer(s);seq:=append(ri,si...);return append([]byte{0x30,byte(len(seq))},seq...)
+func derLength(n int) byte {
+	// DER integers from a 32-byte scalar are at most 33 bytes.
+	//nolint:gosec // bounded by the fixed-size secp256k1 scalar.
+	return byte(n)
 }
 
-func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
-	if len(unsigned)<10{return nil,ErrInvalidDraft}
-	var out bytes.Buffer
-	out.Write(unsigned[:4]);out.WriteByte(0);out.WriteByte(1)
-	pos:=4;n,used,err:=readCompactSize(unsigned[pos:]);if err!=nil||n!=uint64(len(witnesses)){return nil,ErrInvalidDraft};pos+=used
-	// Copy serialized inputs and outputs (excluding version, marker/flag and locktime).
-	inputStart:=pos
-	for i:=uint64(0);i<n;i++{
-		if pos+36>len(unsigned){return nil,ErrInvalidDraft};pos+=36
-		scriptLen,u,e:=readCompactSize(unsigned[pos:]);if e!=nil{return nil,e};pos+=u+int(scriptLen)+4
-		if pos>len(unsigned){return nil,ErrInvalidDraft}
-	}
-	outputStart:=pos
-	out.Write(unsigned[inputStart:outputStart])
-	outputCount,u,err:=readCompactSize(unsigned[pos:]);if err!=nil{return nil,err};pos+=u
-	for i:=uint64(0);i<outputCount;i++{if pos+8>len(unsigned){return nil,ErrInvalidDraft};pos+=8;l,u,e:=readCompactSize(unsigned[pos:]);if e!=nil{return nil,e};pos+=u+int(l);if pos>len(unsigned){return nil,ErrInvalidDraft}}
-	out.Write(unsigned[outputStart:pos])
-	for _,w:=range witnesses{writeCompactSize(&out,uint64(len(w)));for _,item:=range w{writeCompactSize(&out,uint64(len(item)));out.Write(item)}}
-	if pos+4!=len(unsigned){return nil,ErrInvalidDraft};out.Write(unsigned[pos:])
-	return out.Bytes(),nil
+func encodeDERSignature(r,s []byte)[]byte{
+	integer:=func(v []byte)[]byte{for len(v)>1&&v[0]==0{v=v[1:]};out:=append([]byte(nil),v...);if out[0]&0x80!=0{out=append([]byte{0},out...)};return append([]byte{0x02,derLength(len(out))},out...)}
+	ri,si:=integer(r),integer(s);seq:=append(ri,si...);return append([]byte{0x30,derLength(len(seq))},seq...)
 }
+
+func serializeWitness(unsigned []byte, witnesses [][][]byte) ([]byte, error) {
+	if len(unsigned) < 10 {
+		return nil, ErrInvalidDraft
+	}
+	var out bytes.Buffer
+	out.Write(unsigned[:4])
+	out.WriteByte(0)
+	out.WriteByte(1)
+
+	pos := 4
+	inputCount, used, err := readCompactSize(unsigned[pos:])
+	if err != nil || inputCount != uint64(len(witnesses)) {
+		return nil, ErrInvalidDraft
+	}
+	writeCompactSize(&out, inputCount)
+	pos += used
+
+	inputStart := pos
+	for i := uint64(0); i < inputCount; i++ {
+		if pos+36 > len(unsigned) {
+			return nil, ErrInvalidDraft
+		}
+		pos += 36
+		scriptLen, n, err := readCompactSize(unsigned[pos:])
+		if err != nil || n+4 > len(unsigned)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(unsigned)-pos-n-4)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size + 4
+	}
+	outputStart := pos
+	out.Write(unsigned[inputStart:outputStart])
+
+	outputCount, used, err := readCompactSize(unsigned[pos:])
+	if err != nil {
+		return nil, ErrInvalidDraft
+	}
+	pos += used
+	for i := uint64(0); i < outputCount; i++ {
+		if pos+8 > len(unsigned) {
+			return nil, ErrInvalidDraft
+		}
+		pos += 8
+		scriptLen, n, err := readCompactSize(unsigned[pos:])
+		if err != nil || n > len(unsigned)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(unsigned)-pos-n)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size
+	}
+	out.Write(unsigned[outputStart:pos])
+
+	for _, witness := range witnesses {
+		writeCompactSize(&out, uint64(len(witness)))
+		for _, item := range witness {
+			writeCompactSize(&out, uint64(len(item)))
+			out.Write(item)
+		}
+	}
+	if pos+4 != len(unsigned) {
+		return nil, ErrInvalidDraft
+	}
+	out.Write(unsigned[pos:])
+	return out.Bytes(), nil
+}
+
+// checkedSliceSize converts a CompactSize length only after proving it fits
+// in the remaining slice and in int.
+func checkedSliceSize(n uint64, remaining int) (int, bool) {
+	if remaining < 0 {
+		return 0, false
+	}
+	//nolint:gosec // remaining is non-negative and bounded by len(slice).
+	if n > uint64(remaining) {
+		return 0, false
+	}
+	//nolint:gosec // n <= remaining <= len(slice), so it fits in int.
+	return int(n), true
+}
+
 func readCompactSize(b []byte)(uint64,int,error){if len(b)<1{return 0,0,ErrInvalidDraft};switch b[0]{case 0xfd:if len(b)<3{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint16(b[1:3])),3,nil;case 0xfe:if len(b)<5{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint32(b[1:5])),5,nil;case 0xff:if len(b)<9{return 0,0,ErrInvalidDraft};return binary.LittleEndian.Uint64(b[1:9]),9,nil;default:return uint64(b[0]),1,nil}}
 
 
@@ -417,54 +489,82 @@ func (e *SpendEngine) Status(ctx context.Context, id domain.TxID) (ports.TxStatu
 // stripWitness parses a SegWit serialization and returns the canonical
 // non-witness serialization used for txid calculation.
 func stripWitness(raw []byte) ([]byte, error) {
-	if len(raw) < 10 || raw[4] != 0 || raw[5] != 1 { return nil, ErrInvalidDraft }
+	if len(raw) < 10 || raw[4] != 0 || raw[5] != 1 {
+		return nil, ErrInvalidDraft
+	}
 	pos := 6
 	inputCount, used, err := readCompactSize(raw[pos:])
-	if err != nil || inputCount == 0 || inputCount > 1000 { return nil, ErrInvalidDraft }
+	if err != nil || inputCount == 0 || inputCount > 1000 {
+		return nil, ErrInvalidDraft
+	}
 	pos += used
 	var base bytes.Buffer
 	base.Write(raw[:4])
 	writeCompactSize(&base, inputCount)
 	for i := uint64(0); i < inputCount; i++ {
 		start := pos
-		if pos+36 > len(raw) { return nil, ErrInvalidDraft }
+		if pos+36 > len(raw) {
+			return nil, ErrInvalidDraft
+		}
 		pos += 36
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
-		pos += n + int(scriptLen) + 4
-		if pos > len(raw) { return nil, ErrInvalidDraft }
+		if err != nil || n+4 > len(raw)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(raw)-pos-n-4)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size + 4
 		base.Write(raw[start:pos])
 	}
 	outputCount, used, err := readCompactSize(raw[pos:])
-	if err != nil || outputCount == 0 || outputCount > 1000 { return nil, ErrInvalidDraft }
+	if err != nil || outputCount == 0 || outputCount > 1000 {
+		return nil, ErrInvalidDraft
+	}
 	pos += used
 	writeCompactSize(&base, outputCount)
 	for i := uint64(0); i < outputCount; i++ {
 		start := pos
-		if pos+8 > len(raw) { return nil, ErrInvalidDraft }
+		if pos+8 > len(raw) {
+			return nil, ErrInvalidDraft
+		}
 		pos += 8
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
-		pos += n + int(scriptLen)
-		if pos > len(raw) { return nil, ErrInvalidDraft }
+		if err != nil || n > len(raw)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(raw)-pos-n)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size
 		base.Write(raw[start:pos])
 	}
 	for i := uint64(0); i < inputCount; i++ {
 		items, n, err := readCompactSize(raw[pos:])
-		if err != nil || items > 100 { return nil, ErrInvalidDraft }
+		if err != nil || items > 100 {
+			return nil, ErrInvalidDraft
+		}
 		pos += n
 		for j := uint64(0); j < items; j++ {
 			size, n, err := readCompactSize(raw[pos:])
-			if err != nil || size > uint64(len(raw)) { return nil, ErrInvalidDraft }
-			pos += n + int(size)
-			if pos > len(raw) { return nil, ErrInvalidDraft }
+			if err != nil || n > len(raw)-pos {
+				return nil, ErrInvalidDraft
+			}
+			itemSize, ok := checkedSliceSize(size, len(raw)-pos-n)
+			if !ok {
+				return nil, ErrInvalidDraft
+			}
+			pos += n + itemSize
 		}
 	}
-	if pos+4 != len(raw) { return nil, ErrInvalidDraft }
+	if pos+4 != len(raw) {
+		return nil, ErrInvalidDraft
+	}
 	base.Write(raw[pos:])
 	return base.Bytes(), nil
 }
-
 
 // verifyLiveUTXOs checks that each claimed prevout is still listed as unspent
 // by Esplora. Verify has no context parameter in ChainAdapter, so this bounded
