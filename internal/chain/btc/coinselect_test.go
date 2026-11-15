@@ -39,7 +39,7 @@ func TestSelectCoinsDustIsAddedToFee(t *testing.T) {
 	// 10 + 68 + 2*31 = 140 vB; at 1 sat/vB, change below 294 is folded into fee.
 	got, err := SelectCoins([]domain.UTXO{btcUTXO("a", 10000, 0)}, domain.AmountFromUint64(9800), 1)
 	if err != nil { t.Fatal(err) }
-	if got.HasChange { t.Fatalf("dust change must be omitted: %+v", got) }
+	if got.HasChange || !got.DustAddedToFee { t.Fatalf("dust change must be omitted and reported: %+v", got) }
 	if got.Fee.String() != "200" { t.Fatalf("fee = %s, want 200", got.Fee.String()) }
 	if got.VBytes != 109 { t.Fatalf("no-change vbytes = %d, want 109", got.VBytes) }
 }
