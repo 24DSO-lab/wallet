@@ -96,3 +96,63 @@ func TestScannerRefreshRejectsMissingXpubAndWrongAsset(t *testing.T) {
 		t.Fatalf("wrong asset error = %v", err)
 	}
 }
+
+
+func TestTransactionForWalletDirections(t *testing.T) {
+	ours := map[string]struct{}{"bc1-wallet": {}}
+	tests := []struct {
+		name string
+		tx EsploraTx
+		direction domain.Direction
+		amount string
+		fee string
+		counterparty string
+	}{
+		{
+			name: "incoming",
+			tx: EsploraTx{TxID: strings.Repeat("a", 64), Fee: 200,
+				Vin: []EsploraInput{{Prevout: &struct {
+					ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+					Value uint64 `json:"value"`
+				}{ScriptPubKeyAddress: "external", Value: 1200}}},
+				Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 1000}},
+			},
+			direction: domain.DirectionIn, amount: "1000", fee: "0", counterparty: "external",
+		},
+		{
+			name: "outgoing",
+			tx: EsploraTx{TxID: strings.Repeat("b", 64), Fee: 200,
+				Vin: []EsploraInput{{Prevout: &struct {
+					ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+					Value uint64 `json:"value"`
+				}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}}},
+				Vout: []EsploraOutput{
+					{ScriptPubKeyAddress: "recipient", Value: 6000},
+					{ScriptPubKeyAddress: "bc1-wallet", Value: 3800},
+				},
+			},
+			direction: domain.DirectionOut, amount: "6000", fee: "200", counterparty: "recipient",
+		},
+		{
+			name: "self",
+			tx: EsploraTx{TxID: strings.Repeat("c", 64), Fee: 200,
+				Vin: []EsploraInput{{Prevout: &struct {
+					ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+					Value uint64 `json:"value"`
+				}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}}},
+				Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 9800}},
+			},
+			direction: domain.DirectionSelf, amount: "9800", fee: "0", counterparty: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := transactionForWallet("w", tt.tx, ours)
+			if err != nil { t.Fatal(err) }
+			if got.Direction != tt.direction || got.Amount.String() != tt.amount ||
+				got.Fee.String() != tt.fee || got.Counterparty != tt.counterparty {
+				t.Fatalf("got %+v", got)
+			}
+		})
+	}
+}
