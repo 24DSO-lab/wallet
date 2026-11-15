@@ -77,9 +77,9 @@ func (e *SpendEngine) Prepare(ctx context.Context, in domain.SendIntent) (ports.
 	if err := in.Validate(); err != nil { return ports.Prepared{}, err }
 	if in.Asset != domain.BTC { return ports.Prepared{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: only BTC can be spent by this adapter")) }
 	if err := ValidateAddress(e.profile, in.To); err != nil { return ports.Prepared{}, err }
-\tif amount < DustThreshold { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: recipient output is dust")) }
 	amount, ok := in.Amount.Uint64()
 	if !ok || amount == 0 { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: amount outside satoshi range")) }
+	if amount < DustThreshold { return ports.Prepared{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: recipient output is dust")) }
 
 	snapshot, err := e.scanner.Refresh(ctx, in.Wallet, domain.BTC)
 	if err != nil { return ports.Prepared{}, err }
@@ -125,7 +125,7 @@ func (e *SpendEngine) Prepare(ctx context.Context, in domain.SendIntent) (ports.
 	total, _ := in.Amount.Add(fee)
 	prepared.Summary.Total = total
 	if selection.DustAddedToFee {
-		prepared.Warnings = append(prepared.Warnings, domain.Warning{Code:domain.WarnDustAmount, Detail:"dust remainder is added to the miner fee or recipient output is below the standard P2WPKH threshold"})
+		prepared.Warnings = append(prepared.Warnings, domain.Warning{Code:domain.WarnDustAmount, Detail:"sub-dust remainder is added to the miner fee"})
 	}
 	return prepared, nil
 }
