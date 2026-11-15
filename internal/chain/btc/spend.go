@@ -336,27 +336,92 @@ func encodeDERSignature(r,s []byte)[]byte{
 	ri,si:=integer(r),integer(s);seq:=append(ri,si...);return append([]byte{0x30,derLength(len(seq))},seq...)
 }
 
-func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
-	if len(unsigned)<10{return nil,ErrInvalidDraft}
-	var out bytes.Buffer
-	out.Write(unsigned[:4]);out.WriteByte(0);out.WriteByte(1)
-	pos:=4;n,used,err:=readCompactSize(unsigned[pos:]);if err!=nil||n!=uint64(len(witnesses)){return nil,ErrInvalidDraft};writeCompactSize(&out,n);pos+=used
-	// Copy serialized inputs and outputs (excluding version, marker/flag and locktime).
-	inputStart:=pos
-	for i:=uint64(0);i<n;i++{
-		if pos+36>len(unsigned){return nil,ErrInvalidDraft};pos+=36
-		scriptLen,u,e:=readCompactSize(unsigned[pos:]);if e!=nil||u+4>len(unsigned)-pos{return nil,ErrInvalidDraft};if scriptLen>uint64(len(unsigned)-pos-u-4){return nil,ErrInvalidDraft};pos+=u+int(scriptLen)+4
-		if pos>len(unsigned){return nil,ErrInvalidDraft}
+func serializeWitness(unsigned []byte, witnesses [][][]byte) ([]byte, error) {
+	if len(unsigned) < 10 {
+		return nil, ErrInvalidDraft
 	}
-	outputStart:=pos
+	var out bytes.Buffer
+	out.Write(unsigned[:4])
+	out.WriteByte(0)
+	out.WriteByte(1)
+
+	pos := 4
+	inputCount, used, err := readCompactSize(unsigned[pos:])
+	if err != nil || inputCount != uint64(len(witnesses)) {
+		return nil, ErrInvalidDraft
+	}
+	writeCompactSize(&out, inputCount)
+	pos += used
+
+	inputStart := pos
+	for i := uint64(0); i < inputCount; i++ {
+		if pos+36 > len(unsigned) {
+			return nil, ErrInvalidDraft
+		}
+		pos += 36
+		scriptLen, n, err := readCompactSize(unsigned[pos:])
+		if err != nil || n+4 > len(unsigned)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(unsigned)-pos-n-4)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size + 4
+	}
+	outputStart := pos
 	out.Write(unsigned[inputStart:outputStart])
-	outputCount,u,err:=readCompactSize(unsigned[pos:]);if err!=nil{return nil,err};pos+=u
-	for i:=uint64(0);i<outputCount;i++{if pos+8>len(unsigned){return nil,ErrInvalidDraft};pos+=8;l,u,e:=readCompactSize(unsigned[pos:]);if e!=nil||u>len(unsigned)-pos{return nil,ErrInvalidDraft};if l>uint64(len(unsigned)-pos-u){return nil,ErrInvalidDraft};pos+=u+int(l)}
+
+	outputCount, used, err := readCompactSize(unsigned[pos:])
+	if err != nil {
+		return nil, ErrInvalidDraft
+	}
+	pos += used
+	for i := uint64(0); i < outputCount; i++ {
+		if pos+8 > len(unsigned) {
+			return nil, ErrInvalidDraft
+		}
+		pos += 8
+		scriptLen, n, err := readCompactSize(unsigned[pos:])
+		if err != nil || n > len(unsigned)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(unsigned)-pos-n)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size
+	}
 	out.Write(unsigned[outputStart:pos])
-	for _,w:=range witnesses{writeCompactSize(&out,uint64(len(w)));for _,item:=range w{writeCompactSize(&out,uint64(len(item)));out.Write(item)}}
-	if pos+4!=len(unsigned){return nil,ErrInvalidDraft};out.Write(unsigned[pos:])
-	return out.Bytes(),nil
+
+	for _, witness := range witnesses {
+		writeCompactSize(&out, uint64(len(witness)))
+		for _, item := range witness {
+			writeCompactSize(&out, uint64(len(item)))
+			out.Write(item)
+		}
+	}
+	if pos+4 != len(unsigned) {
+		return nil, ErrInvalidDraft
+	}
+	out.Write(unsigned[pos:])
+	return out.Bytes(), nil
 }
+
+// checkedSliceSize converts a CompactSize length only after proving it fits
+// in the remaining slice and in int.
+func checkedSliceSize(n uint64, remaining int) (int, bool) {
+	if remaining < 0 {
+		return 0, false
+	}
+	//nolint:gosec // remaining is non-negative and bounded by len(slice).
+	if n > uint64(remaining) {
+		return 0, false
+	}
+	//nolint:gosec // n <= remaining <= len(slice), so it fits in int.
+	return int(n), true
+}
+
 func readCompactSize(b []byte)(uint64,int,error){if len(b)<1{return 0,0,ErrInvalidDraft};switch b[0]{case 0xfd:if len(b)<3{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint16(b[1:3])),3,nil;case 0xfe:if len(b)<5{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint32(b[1:5])),5,nil;case 0xff:if len(b)<9{return 0,0,ErrInvalidDraft};return binary.LittleEndian.Uint64(b[1:9]),9,nil;default:return uint64(b[0]),1,nil}}
 
 
@@ -424,53 +489,82 @@ func (e *SpendEngine) Status(ctx context.Context, id domain.TxID) (ports.TxStatu
 // stripWitness parses a SegWit serialization and returns the canonical
 // non-witness serialization used for txid calculation.
 func stripWitness(raw []byte) ([]byte, error) {
-	if len(raw) < 10 || raw[4] != 0 || raw[5] != 1 { return nil, ErrInvalidDraft }
+	if len(raw) < 10 || raw[4] != 0 || raw[5] != 1 {
+		return nil, ErrInvalidDraft
+	}
 	pos := 6
 	inputCount, used, err := readCompactSize(raw[pos:])
-	if err != nil || inputCount == 0 || inputCount > 1000 { return nil, ErrInvalidDraft }
+	if err != nil || inputCount == 0 || inputCount > 1000 {
+		return nil, ErrInvalidDraft
+	}
 	pos += used
 	var base bytes.Buffer
 	base.Write(raw[:4])
 	writeCompactSize(&base, inputCount)
 	for i := uint64(0); i < inputCount; i++ {
 		start := pos
-		if pos+36 > len(raw) { return nil, ErrInvalidDraft }
+		if pos+36 > len(raw) {
+			return nil, ErrInvalidDraft
+		}
 		pos += 36
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || n+4 > len(raw)-pos || scriptLen > uint64(len(raw)-pos-n-4) { return nil, ErrInvalidDraft }
-		pos += n + int(scriptLen) + 4
-		if pos > len(raw) { return nil, ErrInvalidDraft }
+		if err != nil || n+4 > len(raw)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(raw)-pos-n-4)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size + 4
 		base.Write(raw[start:pos])
 	}
 	outputCount, used, err := readCompactSize(raw[pos:])
-	if err != nil || outputCount == 0 || outputCount > 1000 { return nil, ErrInvalidDraft }
+	if err != nil || outputCount == 0 || outputCount > 1000 {
+		return nil, ErrInvalidDraft
+	}
 	pos += used
 	writeCompactSize(&base, outputCount)
 	for i := uint64(0); i < outputCount; i++ {
 		start := pos
-		if pos+8 > len(raw) { return nil, ErrInvalidDraft }
+		if pos+8 > len(raw) {
+			return nil, ErrInvalidDraft
+		}
 		pos += 8
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || n > len(raw)-pos || scriptLen > uint64(len(raw)-pos-n) { return nil, ErrInvalidDraft }
-		pos += n + int(scriptLen)
-		if pos > len(raw) { return nil, ErrInvalidDraft }
+		if err != nil || n > len(raw)-pos {
+			return nil, ErrInvalidDraft
+		}
+		size, ok := checkedSliceSize(scriptLen, len(raw)-pos-n)
+		if !ok {
+			return nil, ErrInvalidDraft
+		}
+		pos += n + size
 		base.Write(raw[start:pos])
 	}
 	for i := uint64(0); i < inputCount; i++ {
 		items, n, err := readCompactSize(raw[pos:])
-		if err != nil || items > 100 { return nil, ErrInvalidDraft }
+		if err != nil || items > 100 {
+			return nil, ErrInvalidDraft
+		}
 		pos += n
 		for j := uint64(0); j < items; j++ {
 			size, n, err := readCompactSize(raw[pos:])
-			if err != nil || size > uint64(len(raw)) { return nil, ErrInvalidDraft }
-			pos += n + int(size)
-			if pos > len(raw) { return nil, ErrInvalidDraft }
+			if err != nil || n > len(raw)-pos {
+				return nil, ErrInvalidDraft
+			}
+			itemSize, ok := checkedSliceSize(size, len(raw)-pos-n)
+			if !ok {
+				return nil, ErrInvalidDraft
+			}
+			pos += n + itemSize
 		}
 	}
-	if pos+4 != len(raw) { return nil, ErrInvalidDraft }
+	if pos+4 != len(raw) {
+		return nil, ErrInvalidDraft
+	}
 	base.Write(raw[pos:])
 	return base.Bytes(), nil
-}
+}}
 
 
 // verifyLiveUTXOs checks that each claimed prevout is still listed as unspent
