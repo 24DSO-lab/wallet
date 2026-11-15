@@ -77,7 +77,11 @@ func SelectCoins(utxos []domain.UTXO, amount domain.Amount, feeRateSatPerVByte f
 	var best Selection
 	bestWaste := uint64(math.MaxUint64)
 	var nodes int
-	chosen := make([]int, 0, len(candidates))
+	searchCandidates := candidates
+	if len(searchCandidates) > 24 {
+		searchCandidates = searchCandidates[:24]
+	}
+	chosen := make([]int, 0, len(searchCandidates))
 	var visit func(start int, total uint64)
 	visit = func(start int, total uint64) {
 		if nodes >= selectionNodeLimit {
@@ -85,16 +89,16 @@ func SelectCoins(utxos []domain.UTXO, amount domain.Amount, feeRateSatPerVByte f
 		}
 		nodes++
 		if len(chosen) > 0 {
-			if result, waste, ok := evaluateSelection(candidates, chosen, total, target, feeRateSatPerVByte); ok && waste < bestWaste {
+			if result, waste, ok := evaluateSelection(searchCandidates, chosen, total, target, feeRateSatPerVByte); ok && waste < bestWaste {
 				best, bestWaste = result, waste
 			}
 		}
-		for i := start; i < len(candidates) && nodes < selectionNodeLimit; i++ {
-			if math.MaxUint64-total < candidates[i].value {
+		for i := start; i < len(searchCandidates) && nodes < selectionNodeLimit; i++ {
+			if math.MaxUint64-total < searchCandidates[i].value {
 				continue
 			}
 			chosen = append(chosen, i)
-			visit(i+1, total+candidates[i].value)
+			visit(i+1, total+searchCandidates[i].value)
 			chosen = chosen[:len(chosen)-1]
 		}
 	}
