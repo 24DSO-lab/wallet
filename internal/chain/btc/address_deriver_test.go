@@ -59,3 +59,47 @@ func TestHDAddressDeriverRejectsInvalidXpubAndProfile(t *testing.T) {
 		t.Fatal("expected hardened address index error")
 	}
 }
+
+func TestHDAddressDeriverDerivesReceiveAndChange(t *testing.T) {
+	seed := secret.FromBytes([]byte("0123456789abcdef"))
+	defer seed.Wipe()
+	master, err := hd.MasterKey(seed)
+	if err != nil {
+		t.Fatalf("MasterKey: %v", err)
+	}
+	defer master.Wipe()
+
+	accountPath, err := hd.BTCAccountPath(domain.ProfileTest)
+	if err != nil {
+		t.Fatalf("BTCAccountPath: %v", err)
+	}
+	account, err := master.DerivePath(accountPath)
+	if err != nil {
+		t.Fatalf("DerivePath: %v", err)
+	}
+	xpub, err := account.PublicKey().Serialize(domain.ProfileTest)
+	account.Wipe()
+	if err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+
+	deriver := HDAddressDeriver{}
+	for _, tc := range []struct {
+		chain domain.AddressChain
+		path  string
+	}{
+		{domain.ChainReceive, "m/84'/1'/0'/0/0"},
+		{domain.ChainChange, "m/84'/1'/0'/1/0"},
+	} {
+		address, path, err := deriver.DeriveAddress(xpub, domain.ProfileTest, tc.chain, 0)
+		if err != nil {
+			t.Fatalf("DeriveAddress(%s): %v", tc.chain, err)
+		}
+		if path != tc.path {
+			t.Errorf("path = %q, want %q", path, tc.path)
+		}
+		if err := ValidateAddress(domain.ProfileTest, address); err != nil {
+			t.Errorf("derived address %q is invalid: %v", address, err)
+		}
+	}
+}
