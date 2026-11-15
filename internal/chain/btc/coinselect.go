@@ -31,6 +31,7 @@ type Selection struct {
 	Fee      domain.Amount
 	Change   domain.Amount
 	HasChange bool
+	DustAddedToFee bool
 	VBytes   uint64
 }
 
@@ -136,7 +137,7 @@ func evaluateSelection(candidates []selectionCandidate, indexes []int, total, ta
 		fee := domain.AmountFromUint64(remainder)
 		selected := selectedUTXOs(candidates, indexes)
 		vbytes := estimateVBytes(inputCount, 1)
-		return Selection{UTXOs: selected, Fee: fee, HasChange: false, VBytes: vbytes}, remainder-feeWithoutChange, true
+		return Selection{UTXOs: selected, Fee: fee, HasChange: false, DustAddedToFee: remainder-feeWithoutChange < DustThreshold, VBytes: vbytes}, remainder-feeWithoutChange, true
 	}
 
 	change := total - target - feeWithChange
@@ -146,7 +147,7 @@ func evaluateSelection(candidates []selectionCandidate, indexes []int, total, ta
 		vbytes := estimateVBytes(inputCount, 1)
 		feeWithoutChange, ok := estimateFee(inputCount, 1, rate)
 		if !ok { return Selection{}, 0, false }
-		return Selection{UTXOs: selectedUTXOs(candidates, indexes), Fee: fee, HasChange: false, VBytes: vbytes}, remainder-feeWithoutChange, true
+		return Selection{UTXOs: selectedUTXOs(candidates, indexes), Fee: fee, HasChange: false, DustAddedToFee: true, VBytes: vbytes}, remainder-feeWithoutChange, true
 	}
 	changeAmount := domain.AmountFromUint64(change)
 	feeAmount := domain.AmountFromUint64(feeWithChange)
