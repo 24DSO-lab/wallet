@@ -564,8 +564,7 @@ func stripWitness(raw []byte) ([]byte, error) {
 	}
 	base.Write(raw[pos:])
 	return base.Bytes(), nil
-}}
-
+}
 
 // verifyLiveUTXOs checks that each claimed prevout is still listed as unspent
 // by Esplora. Verify has no context parameter in ChainAdapter, so this bounded
