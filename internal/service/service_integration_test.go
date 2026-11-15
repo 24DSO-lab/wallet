@@ -3,7 +3,9 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
@@ -205,5 +207,42 @@ func TestServiceWalletReadImportPasswordAndSettingsUseCases(t *testing.T) {
 	wallets, err = svc.ListWallets(ctx)
 	if err != nil || len(wallets) != 2 || wallets[1].ID != imported.ID {
 		t.Fatalf("ListWallets() after import = (%+v, %v), want two wallets", wallets, err)
+	}
+}
+
+func TestConcurrentWalletCreationNeverExceedsConfiguredLimit(t *testing.T) {
+	const callers = 12
+	svc, st := testService(t)
+	results := make(chan error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, mnemonic, err := svc.CreateWallet(context.Background(), fmt.Sprintf("Wallet %d", i), 12, testSecrets())
+			mnemonic.Wipe()
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+
+	var created, limited int
+	for err := range results {
+		switch {
+		case err == nil:
+			created++
+		case domain.CodeOf(err) == domain.CodeWalletLimit:
+			limited++
+		default:
+			t.Fatalf("unexpected concurrent CreateWallet error: %v", err)
+		}
+	}
+	if created != 3 || limited != callers-3 {
+		t.Fatalf("concurrent CreateWallet results: created=%d limited=%d, want 3 and %d", created, limited, callers-3)
+	}
+	wallets, err := st.Wallets().List(context.Background())
+	if err != nil || len(wallets) != 3 {
+		t.Fatalf("stored wallets = (%d, %v), want exactly 3", len(wallets), err)
 	}
 }
