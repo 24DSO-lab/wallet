@@ -129,7 +129,7 @@ func evaluateSelection(candidates []selectionCandidate, indexes []int, total, ta
 			return Selection{}, 0, false
 		}
 		remainder := total - target
-		fee, err := domain.NewAmountFromUint64ForBTC(remainder)
+		fee, err := domain.AmountFromUint64(remainder)
 		if err != nil { return Selection{}, 0, false }
 		selected := selectedUTXOs(candidates, indexes)
 		vbytes := estimateVBytes(inputCount, 1)
@@ -139,14 +139,14 @@ func evaluateSelection(candidates []selectionCandidate, indexes []int, total, ta
 	change := total - target - feeWithChange
 	if change < DustThreshold {
 		remainder := total-target
-		fee, err := domain.NewAmountFromUint64ForBTC(remainder)
+		fee, err := domain.AmountFromUint64(remainder)
 		if err != nil { return Selection{}, 0, false }
 		vbytes := estimateVBytes(inputCount, 1)
 		return Selection{UTXOs: selectedUTXOs(candidates, indexes), Fee: fee, HasChange: false, VBytes: vbytes}, remainder-feeWithChange, true
 	}
-	changeAmount, err := domain.NewAmountFromUint64ForBTC(change)
+	changeAmount, err := domain.AmountFromUint64(change)
 	if err != nil { return Selection{}, 0, false }
-	feeAmount, err := domain.NewAmountFromUint64ForBTC(feeWithChange)
+	feeAmount, err := domain.AmountFromUint64(feeWithChange)
 	if err != nil { return Selection{}, 0, false }
 	return Selection{
 		UTXOs: selectedUTXOs(candidates, indexes), Fee: feeAmount,
