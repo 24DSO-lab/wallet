@@ -63,10 +63,11 @@ type Store struct {
 	addresses map[domain.Network]AddressFunc
 	log       *slog.Logger
 
-	mu      sync.Mutex // операции с файлами и паролем выполняются по одной
-	kdf     *Params
-	kdfOnce sync.Once
-	faults  faults
+	mu             sync.Mutex // операции с файлами и паролем выполняются по одной
+	recoverPending bool       // после неудачной смены пароля остался каталог .pwchange
+	kdf            *Params
+	kdfOnce        sync.Once
+	faults         faults
 }
 
 // faults это точки отказа для тестов; в рабочем коде все nil.
@@ -87,7 +88,7 @@ func New(cfg Config) (*Store, error) {
 	if cfg.Dir == "" {
 		return nil, errors.New("keystore: directory is required")
 	}
-	if cfg.KDF != nil && !cfg.allowWeakKDF && !(cfg.KDF.withinReadBounds() && cfg.KDF.atLeastFloor()) {
+	if cfg.KDF != nil && !cfg.allowWeakKDF && !cfg.KDF.acceptable() {
 		return nil, errors.New("keystore: KDF parameters are below the OWASP minimum or out of range")
 	}
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
@@ -137,6 +138,9 @@ func (s *Store) NewMnemonic(words int) (secret.Bytes, error) {
 func (s *Store) Save(ctx context.Context, id string, mnemonic secret.Bytes, sec ports.Secrets) (ports.PublicKeys, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return ports.PublicKeys{}, err
+	}
 
 	if !validID(id) {
 		return ports.PublicKeys{}, domain.NewError(domain.CodeInvalidInput, errors.New("keystore: invalid wallet id"))
@@ -195,7 +199,10 @@ func (s *Store) Save(ctx context.Context, id string, mnemonic secret.Bytes, sec 
 	if err := ctxError(ctx); err != nil {
 		return ports.PublicKeys{}, err
 	}
-	if err := s.writeAtomic(s.path(id), file); err != nil {
+	if err := s.writeNew(s.path(id), file); err != nil {
+		if errors.Is(err, ErrExists) {
+			return ports.PublicKeys{}, domain.NewError(domain.CodeInvalidInput, err)
+		}
 		return ports.PublicKeys{}, domain.NewError(domain.CodeInternal, err)
 	}
 	s.log.Info("keystore: wallet saved", "wallet", id)
@@ -207,6 +214,9 @@ func (s *Store) Save(ctx context.Context, id string, mnemonic secret.Bytes, sec 
 func (s *Store) Verify(ctx context.Context, sec ports.Secrets) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return err
+	}
 	if err := ctxError(ctx); err != nil {
 		return err
 	}
@@ -230,6 +240,9 @@ func (s *Store) Verify(ctx context.Context, sec ports.Secrets) error {
 func (s *Store) ChangePassword(ctx context.Context, oldPwd, newPwd secret.Bytes) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return err
+	}
 
 	if newPwd.IsEmpty() {
 		return domain.NewError(domain.CodeInvalidInput, errors.New("keystore: new password is empty"))
@@ -270,6 +283,8 @@ func (s *Store) ChangePassword(ctx context.Context, oldPwd, newPwd secret.Bytes)
 		return err
 	}
 	if err := s.changeFiles(ids, oldData, newData); err != nil {
+		// Каталог .pwchange мог остаться: следующая операция его доведёт.
+		s.recoverPending = true
 		return domain.NewError(domain.CodeInternal, err)
 	}
 	s.log.Info("keystore: password changed", "wallets", len(ids))
@@ -280,6 +295,9 @@ func (s *Store) ChangePassword(ctx context.Context, oldPwd, newPwd secret.Bytes)
 func (s *Store) RevealSeed(ctx context.Context, id string, sec ports.Secrets) (secret.Bytes, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return secret.Bytes{}, err
+	}
 	if err := ctxError(ctx); err != nil {
 		return secret.Bytes{}, err
 	}
@@ -293,6 +311,9 @@ func (s *Store) RevealSeed(ctx context.Context, id string, sec ports.Secrets) (s
 func (s *Store) Delete(ctx context.Context, id string, sec ports.Secrets) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return err
+	}
 	if err := ctxError(ctx); err != nil {
 		return err
 	}
@@ -321,6 +342,9 @@ func (s *Store) Delete(ctx context.Context, id string, sec ports.Secrets) error 
 func (s *Store) Sign(ctx context.Context, id string, sec ports.Secrets, reqs []ports.DigestRequest) ([]ports.Signature, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return nil, err
+	}
 	if err := ctxError(ctx); err != nil {
 		return nil, err
 	}
@@ -411,6 +435,22 @@ func (s *Store) Sign(ctx context.Context, id string, sec ports.Secrets, reqs []p
 		out[i].PubKey = c[:]
 	}
 	return out, nil
+}
+
+// prepare выполняется под s.mu в начале каждой операции: проверяет контекст и
+// доводит прерванную смену пароля, чтобы операция не увидела смесь файлов
+// под старым и новым паролем.
+func (s *Store) prepare(ctx context.Context) error {
+	if err := ctxError(ctx); err != nil {
+		return err
+	}
+	if s.recoverPending {
+		if err := s.recoverStage(); err != nil {
+			return domain.NewError(domain.CodeInternal, fmt.Errorf("keystore: finish interrupted password change: %w", err))
+		}
+		s.recoverPending = false
+	}
+	return nil
 }
 
 // open читает и расшифровывает файл кошелька id.

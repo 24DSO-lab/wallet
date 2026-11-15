@@ -940,7 +940,15 @@ func TestConcurrentUse(t *testing.T) {
 // --- фаззинг разбора файла ---
 
 func FuzzParseFile(f *testing.F) {
-	file, err := encryptFile("w1", []byte(abandon), secret.FromString(pwd), *weak())
+	// Сид детерминированный: каждый процесс фаззера должен получить тот же файл.
+	h := header{params: *weak(), id: "w1"}
+	for i := range h.salt {
+		h.salt[i] = byte(i + 1)
+	}
+	for i := range h.nonce {
+		h.nonce[i] = byte(0xA0 + i)
+	}
+	file, err := sealFile(h, []byte(abandon), secret.FromString(pwd))
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -969,4 +977,85 @@ func FuzzParseFile(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestReservedWindowsNames(t *testing.T) {
+	for _, id := range []string{"con", "CON", "Nul", "aux", "PRN", "com1", "LPT9", "com9"} {
+		if validID(id) {
+			t.Errorf("%q accepted", id)
+		}
+	}
+	for _, id := range []string{"com0", "com10", "console", "lpt", "9", "a-b_C"} {
+		if !validID(id) {
+			t.Errorf("%q rejected", id)
+		}
+	}
+}
+
+func TestSaveNeverReplacesAnExistingFile(t *testing.T) {
+	e := newEnv(t, domain.ProfileMain)
+	e.save("w1", abandon, pwd, "")
+	orig := readBytes(t, e.s.path("w1"))
+	// Гонка: файл появился после проверки exists, но до записи.
+	if err := e.s.writeNew(e.s.path("w1"), []byte("another file")); !errors.Is(err, ErrExists) {
+		t.Fatalf("writeNew over an existing file: %v", err)
+	}
+	if !bytes.Equal(orig, readBytes(t, e.s.path("w1"))) {
+		t.Fatal("existing wallet file was replaced")
+	}
+	entries, _ := os.ReadDir(e.dir)
+	if len(entries) != 1 {
+		t.Errorf("temp file left behind: %v", entries)
+	}
+}
+
+func TestHeaderBoundsAreCorruptNotWrongPassword(t *testing.T) {
+	e := newEnv(t, domain.ProfileMain)
+	e.save("w1", abandon, pwd, "")
+	orig := readBytes(t, e.s.path("w1"))
+	for name, edit := range map[string]func(b []byte){
+		"time above max":    func(b []byte) { b[10] = maxTime + 1 },
+		"time zero":         func(b []byte) { b[10] = 0 },
+		"threads above max": func(b []byte) { b[15] = maxThreads + 1 },
+		"memory above max":  func(b []byte) { b[11], b[12], b[13], b[14] = 0, 0x04, 0x00, 0x01 }, // 256 MiB + 1 KiB
+	} {
+		bad := append([]byte(nil), orig...)
+		edit(bad)
+		_ = os.WriteFile(e.s.path("w1"), bad, 0o600)
+		_, err := e.s.RevealSeed(context.Background(), "w1", secrets(pwd, ""))
+		if domain.CodeOf(err) != domain.CodeKeystoreCorrupt {
+			t.Errorf("%s: code %s (%v)", name, domain.CodeOf(err), err)
+		}
+	}
+}
+
+// Сбой после COMMIT не оставляет смесь файлов: следующая операция того же
+// процесса сначала доводит смену пароля, а не читает наполовину замененный набор.
+func TestInterruptedChangeIsFinishedBeforeNextOperation(t *testing.T) {
+	e, ids := twoWallets(t)
+	e.s.faults.afterCommit = func() error { return errors.New("disk failure after commit") }
+	if err := e.s.ChangePassword(context.Background(), secret.FromString(pwd), secret.FromString(newPwd)); err == nil {
+		t.Fatal("expected an error")
+	}
+	e.s.faults.afterCommit = nil
+	// Следующий вызов видит согласованное состояние (новый пароль), без перезапуска.
+	assertPassword(t, e.s, ids, newPwd)
+	if exists(e.s.stagePath()) {
+		t.Error("staging directory left behind")
+	}
+	// И повторная смена пароля не затирает журнал: стартует с чистого состояния.
+	if err := e.s.ChangePassword(context.Background(), secret.FromString(newPwd), secret.FromString(pwd)); err != nil {
+		t.Fatal(err)
+	}
+	assertPassword(t, e.s, ids, pwd)
+}
+
+func TestReadFileRejectsOversizeWithoutReadingIt(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "big.keystore")
+	if err := os.WriteFile(p, make([]byte, maxFileSize+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readFile(p); !errors.Is(err, errCorrupt) {
+		t.Errorf("got %v", err)
+	}
 }

@@ -270,3 +270,34 @@ func FuzzValidateMnemonic(f *testing.F) {
 		}
 	})
 }
+
+// Регрессия: norm.NFKD.Bytes возвращает вход как есть, если он уже в форме
+// NFKD, и раньше затирание копии обнуляло буфер вызывающего.
+func TestSeedDoesNotModifyItsInputs(t *testing.T) {
+	const pass = "привет мир"                           // кириллица без составных символов: уже NFKD
+	mn := strings.Replace(abandonMnemonic, " ", " ", 3) // U+2028 тоже устойчив к NFKD
+	p, m := secret.FromString(pass), secret.FromString(mn)
+
+	first, err := SeedFromMnemonic(m, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(p.Expose()) != pass || string(m.Expose()) != mn {
+		t.Fatalf("inputs were modified: passphrase %q, mnemonic %q", p.Expose(), m.Expose())
+	}
+	second, err := SeedFromMnemonic(m, p)
+	if err != nil || !first.Equal(second) {
+		t.Fatalf("second call gives another seed (%v)", err)
+	}
+	if err := ValidateMnemonic(m); err != nil || string(m.Expose()) != mn {
+		t.Fatalf("ValidateMnemonic changed its input: %v", err)
+	}
+}
+
+func TestOverlongTokenIsUnknownWord(t *testing.T) {
+	long := strings.Repeat("a", 4096)
+	err := ValidateMnemonic(secret.FromString(strings.Replace(abandonMnemonic, "about", long, 1)))
+	if !errors.Is(err, ErrUnknownWord) {
+		t.Fatalf("got %v", err)
+	}
+}

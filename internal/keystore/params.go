@@ -15,13 +15,15 @@ type Params struct {
 
 // Границы. Нижняя взята из рекомендаций OWASP для Argon2id: 19 МиБ, два
 // прохода, одна полоса. Верхняя защищает от файла с заголовком, который
-// требует гигабайты памяти: заголовок разбирается до проверки пароля.
+// требует много памяти и времени: заголовок разбирается до проверки пароля.
+// При максимуме (256 МиБ, 6 проходов, 4 полосы) вычисление занимает секунды,
+// но не зависает; подбор Calibrate всегда укладывается в эти границы.
 const (
 	minTime      = 2
 	minMemoryKiB = 19 * 1024
-	maxTime      = 10
-	maxMemoryKiB = 512 * 1024
-	maxThreads   = 8
+	maxTime      = 6
+	maxMemoryKiB = 256 * 1024
+	maxThreads   = 4
 
 	calibrateMaxKiB = 256 * 1024
 	derivedKeyLen   = 32
@@ -36,6 +38,10 @@ func (p Params) withinReadBounds() bool {
 		p.Threads >= 1 && p.Threads <= maxThreads &&
 		p.MemoryKiB >= 8*uint32(p.Threads) && p.MemoryKiB <= maxMemoryKiB
 }
+
+// acceptable сообщает, что параметры годятся для новых файлов: в границах
+// чтения и не ниже минимума OWASP.
+func (p Params) acceptable() bool { return p.withinReadBounds() && p.atLeastFloor() }
 
 func (p Params) atLeastFloor() bool {
 	return p.Time >= minTime && p.MemoryKiB >= minMemoryKiB && p.Threads >= 1

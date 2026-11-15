@@ -112,17 +112,24 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// encryptFile шифрует мнемонику паролем и возвращает содержимое файла.
+// encryptFile шифрует мнемонику паролем и возвращает содержимое файла. Соль
+// и nonce случайные и новые при каждой записи.
 func encryptFile(id string, mnemonic []byte, password secret.Bytes, params Params) ([]byte, error) {
-	if len(mnemonic) == 0 || len(mnemonic) > payloadLen-2 {
-		return nil, errors.New("keystore: mnemonic length out of range")
-	}
 	h := header{params: params, id: id}
 	if _, err := rand.Read(h.salt[:]); err != nil {
 		return nil, fmt.Errorf("keystore: random salt: %w", err)
 	}
 	if _, err := rand.Read(h.nonce[:]); err != nil {
 		return nil, fmt.Errorf("keystore: random nonce: %w", err)
+	}
+	return sealFile(h, mnemonic, password)
+}
+
+// sealFile шифрует с готовым заголовком. Соль и nonce на повтор не
+// проверяются: вызывающий (encryptFile) всегда берёт новые.
+func sealFile(h header, mnemonic []byte, password secret.Bytes) ([]byte, error) {
+	if len(mnemonic) == 0 || len(mnemonic) > payloadLen-2 {
+		return nil, errors.New("keystore: mnemonic length out of range")
 	}
 	key := deriveKey(password, h)
 	defer clear(key)

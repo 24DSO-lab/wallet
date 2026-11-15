@@ -256,6 +256,7 @@ func Sign(priv, digest []byte) (Signature, error) {
 	for {
 		k := gen.next()
 		kk := new(big.Int).SetBytes(k[:])
+		clear(k[:])
 		if kk.Sign() == 0 || kk.Cmp(curveN) >= 0 {
 			WipeInt(kk)
 			continue

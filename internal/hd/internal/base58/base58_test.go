@@ -68,3 +68,16 @@ func FuzzCheckDecode(f *testing.F) {
 		}
 	})
 }
+
+func TestCheckDecodeRejectsLongInput(t *testing.T) {
+	if _, err := CheckDecode(string(make([]byte, maxEncodedLen+1))); !errors.Is(err, ErrTooLong) {
+		t.Errorf("got %v", err)
+	}
+	long := make([]byte, 1<<20)
+	for i := range long {
+		long[i] = '2'
+	}
+	if _, err := CheckDecode(string(long)); !errors.Is(err, ErrTooLong) {
+		t.Errorf("1 MiB input: %v", err)
+	}
+}

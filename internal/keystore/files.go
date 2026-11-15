@@ -3,6 +3,7 @@ package keystore
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,16 +24,30 @@ const (
 var errSimulatedCrash = errors.New("keystore: simulated crash")
 
 func validID(id string) bool {
-	if id == "" || len(id) > maxIDLen {
+	if id == "" || len(id) > maxIDLen || isReservedWindowsName(id) {
 		return false
 	}
 	for i := 0; i < len(id); i++ {
-		c := id[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+		if !isIDChar(id[i]) {
 			return false
 		}
 	}
 	return true
+}
+
+// isReservedWindowsName отвергает имена устройств Windows: файл con.keystore
+// там открывал бы устройство, а не файл.
+func isReservedWindowsName(id string) bool {
+	u := strings.ToUpper(id)
+	switch u {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	return len(u) == 4 && (strings.HasPrefix(u, "COM") || strings.HasPrefix(u, "LPT")) && u[3] >= '1' && u[3] <= '9'
+}
+
+func isIDChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_'
 }
 
 func (s *Store) path(id string) string { return filepath.Join(s.dir, id+fileExt) }
@@ -61,20 +76,52 @@ func (s *Store) listIDs() ([]string, error) {
 // readFile читает файл кошелька. Слишком большой файл это повреждение: до
 // разбора заголовка память под него не выделяется.
 func readFile(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
+	before, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > maxFileSize {
+	if !before.Mode().IsRegular() || before.Size() > maxFileSize {
 		return nil, fmt.Errorf("%w: not a regular small file", errCorrupt)
 	}
-	return os.ReadFile(path)
+	f, err := os.Open(path) //nolint:gosec // путь строится из проверенного идентификатора кошелька
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	// Подмена файла ссылкой между проверкой и открытием не проходит: открытый
+	// файл обязан быть тем же, что проверен.
+	after, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(before, after) {
+		return nil, fmt.Errorf("%w: file changed while opening", errCorrupt)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxFileSize {
+		return nil, fmt.Errorf("%w: file is too large", errCorrupt)
+	}
+	return data, nil
 }
 
 // writeAtomic записывает файл через временный в том же каталоге: запись,
 // fsync, переименование, fsync каталога. Права 0600 (на Windows действует
 // наследуемый список доступа каталога данных пользователя).
 func (s *Store) writeAtomic(path string, data []byte) error {
+	return s.writeFile(path, data, true)
+}
+
+// writeNew делает то же, но не заменяет существующий файл: жёсткая ссылка
+// на готовый временный файл не создаётся, если путь уже занят. Так Save не
+// затрёт чужой seed даже при гонке между проверкой и записью.
+func (s *Store) writeNew(path string, data []byte) error {
+	return s.writeFile(path, data, false)
+}
+
+func (s *Store) writeFile(path string, data []byte, replace bool) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, tmpPrefix+"*")
 	if err != nil {
@@ -108,9 +155,20 @@ func (s *Store) writeAtomic(path string, data []byte) error {
 			return err
 		}
 	}
-	if err := os.Rename(name, path); err != nil {
+	if replace {
+		if err := os.Rename(name, path); err != nil {
+			_ = os.Remove(name)
+			return err
+		}
+	} else {
+		err := os.Link(name, path)
 		_ = os.Remove(name)
-		return err
+		if errors.Is(err, fs.ErrExist) {
+			return ErrExists
+		}
+		if err != nil {
+			return err
+		}
 	}
 	return syncDir(dir)
 }
@@ -121,11 +179,11 @@ func syncDir(dir string) error {
 	if runtime.GOOS == "windows" {
 		return nil
 	}
-	d, err := os.Open(dir)
+	d, err := os.Open(dir) //nolint:gosec // каталог keystore
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	return d.Sync()
 }
 
@@ -176,6 +234,11 @@ func (s *Store) changeFiles(ids []string, oldData, newData map[string][]byte) er
 			}
 		}
 	}
+	// Запись о каталоге .pwchange должна быть на диске раньше маркера COMMIT.
+	if err := syncDir(s.dir); err != nil {
+		_ = os.RemoveAll(stage)
+		return err
+	}
 	if err := s.writeAtomic(s.stagePath("COMMIT"), []byte("commit\n")); err != nil {
 		_ = os.RemoveAll(stage)
 		return err
@@ -198,22 +261,26 @@ func (s *Store) changeFiles(ids []string, oldData, newData map[string][]byte) er
 			return s.rollback(err)
 		}
 	}
-	if err := syncDir(s.dir); err != nil {
-		return err
+	// Все файлы уже заменены. Дальнейшие шаги лишь уборка: их ошибка не делает
+	// смену пароля неудачной, а недоубранный каталог с COMMIT безопасно
+	// доводит recoverStage (в new/ ничего не осталось).
+	_ = syncDir(s.dir)
+	if err := os.RemoveAll(stage); err != nil {
+		s.recoverPending = true
 	}
-	return os.RemoveAll(stage)
+	return nil
 }
 
 // rollback возвращает исходные файлы. cause это причина отката.
 func (s *Store) rollback(cause error) error {
 	if err := os.Rename(s.stagePath("COMMIT"), s.stagePath("ROLLBACK")); err != nil {
-		return fmt.Errorf("keystore: rollback after %v failed: %w", cause, err)
+		return fmt.Errorf("keystore: rollback after %w failed: %w", cause, err)
 	}
 	if err := s.restoreOld(); err != nil {
-		return fmt.Errorf("keystore: rollback after %v failed: %w", cause, err)
+		return fmt.Errorf("keystore: rollback after %w failed: %w", cause, err)
 	}
 	if err := os.RemoveAll(s.stagePath()); err != nil {
-		return fmt.Errorf("keystore: rollback after %v failed: %w", cause, err)
+		return fmt.Errorf("keystore: rollback after %w failed: %w", cause, err)
 	}
 	return cause
 }
@@ -224,7 +291,7 @@ func (s *Store) restoreOld() error {
 		return err
 	}
 	for _, e := range entries {
-		data, err := os.ReadFile(s.stagePath("old", e.Name()))
+		data, err := os.ReadFile(s.stagePath("old", e.Name())) //nolint:gosec // каталог и имя наши
 		if err != nil {
 			return err
 		}

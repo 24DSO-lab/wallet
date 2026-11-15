@@ -12,13 +12,19 @@ import (
 
 const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
-const checksumLen = 4
+const (
+	checksumLen = 4
+	// maxEncodedLen ограничивает вход разбора: самый длинный из наших форматов
+	// (xpub) занимает 111 символов, а разбор растёт квадратично.
+	maxEncodedLen = 128
+)
 
 // Ошибки разбора.
 var (
 	ErrInvalidChar = errors.New("base58: character outside the alphabet")
 	ErrChecksum    = errors.New("base58: checksum mismatch")
 	ErrTooShort    = errors.New("base58: data shorter than the checksum")
+	ErrTooLong     = errors.New("base58: input is too long")
 )
 
 var bigBase = big.NewInt(58)
@@ -39,6 +45,9 @@ func CheckEncode(payload []byte) string {
 // CheckDecode разбирает строку, проверяет контрольную сумму и возвращает
 // payload без неё.
 func CheckDecode(s string) ([]byte, error) {
+	if len(s) > maxEncodedLen {
+		return nil, ErrTooLong
+	}
 	data, err := decode(s)
 	if err != nil {
 		return nil, err

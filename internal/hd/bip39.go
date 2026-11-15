@@ -28,6 +28,7 @@ const (
 )
 
 const (
+	maxWordLen   = 8 // самое длинное слово списка
 	pbkdf2Rounds = 2048
 	seedLen      = 64
 )
@@ -210,6 +211,10 @@ func parseWords(mnemonic secret.Bytes) ([]uint16, error) {
 	buf := make([]byte, 0, 8)
 	defer func() { clear(buf) }()
 	for _, tok := range bytes.Fields(text) {
+		if len(tok) > maxWordLen {
+			clear(idx)
+			return nil, fmt.Errorf("%w at position %d", ErrUnknownWord, len(idx)+1)
+		}
 		buf = append(buf[:0], tok...)
 		for i, c := range buf {
 			if 'A' <= c && c <= 'Z' {
@@ -262,8 +267,8 @@ func entropyFromIndices(idx []uint16) ([]byte, error) {
 	return entropy, nil
 }
 
-// nfkd приводит текст к NFKD. Для ASCII копия не нужна. wipe затирает копию,
-// если она была сделана.
+// nfkd приводит текст к NFKD. Для ASCII копия не нужна. wipe затирает только
+// копию, которую сделала эта функция, и никогда буфер вызывающего.
 func nfkd(b []byte) (out []byte, wipe func(), err error) {
 	if !utf8.Valid(b) {
 		return nil, func() {}, ErrInvalidText
@@ -278,8 +283,13 @@ func nfkd(b []byte) (out []byte, wipe func(), err error) {
 	if ascii {
 		return b, func() {}, nil
 	}
-	out = norm.NFKD.Bytes(b)
-	return out, func() { clear(out) }, nil
+	res := norm.NFKD.Bytes(b)
+	if len(res) > 0 && len(b) > 0 && &res[0] == &b[0] {
+		// Bytes возвращает вход, если он уже в форме NFKD: затирать надо копию,
+		// а не буфер вызывающего.
+		res = append([]byte(nil), res...)
+	}
+	return res, func() { clear(res) }, nil
 }
 
 // pbkdf2SHA512 это PBKDF2-HMAC-SHA512 (RFC 8018). Своя реализация нужна

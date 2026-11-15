@@ -3,6 +3,7 @@ package secp256k1
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"testing"
 )
@@ -118,7 +119,7 @@ func TestScalarMultAndAdd(t *testing.T) {
 func TestAddInverseIsInfinity(t *testing.T) {
 	g, _ := ScalarBaseMult(mustHexBytes(t, "0000000000000000000000000000000000000000000000000000000000000001"))
 	neg, _ := ScalarBaseMult(mustHexBytes(t, "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140"))
-	if _, err := Add(g, neg); err != ErrInfinity {
+	if _, err := Add(g, neg); !errors.Is(err, ErrInfinity) {
 		t.Fatalf("G + (n-1)G: got %v, want ErrInfinity", err)
 	}
 }
@@ -138,7 +139,7 @@ func TestAddScalarBaseMatchesAdd(t *testing.T) {
 		t.Fatalf("AddScalarBase(p, 0) must return p: %v", err)
 	}
 	over := mustHexBytes(t, "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
-	if _, err := AddScalarBase(a, over); err != ErrInvalidScalar {
+	if _, err := AddScalarBase(a, over); !errors.Is(err, ErrInvalidScalar) {
 		t.Fatalf("scalar equal to n: got %v", err)
 	}
 }
@@ -146,7 +147,7 @@ func TestAddScalarBaseMatchesAdd(t *testing.T) {
 func TestAddScalarsModOrder(t *testing.T) {
 	nMinus1 := mustHexBytes(t, "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140")
 	one := mustHexBytes(t, "0000000000000000000000000000000000000000000000000000000000000001")
-	if _, err := AddScalarsModOrder(nMinus1, one); err != ErrInvalidScalar {
+	if _, err := AddScalarsModOrder(nMinus1, one); !errors.Is(err, ErrInvalidScalar) {
 		t.Fatalf("(n-1)+1 = 0 mod n must be rejected, got %v", err)
 	}
 	two := mustHexBytes(t, "0000000000000000000000000000000000000000000000000000000000000002")
@@ -165,7 +166,7 @@ func TestParseScalarRejects(t *testing.T) {
 		"order":    mustHexBytes(t, "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"),
 		"all ones": bytes.Repeat([]byte{0xff}, 32),
 	} {
-		if _, err := ParseScalar(b); err != ErrInvalidScalar {
+		if _, err := ParseScalar(b); !errors.Is(err, ErrInvalidScalar) {
 			t.Errorf("%s: got %v, want ErrInvalidScalar", name, err)
 		}
 	}
@@ -271,13 +272,13 @@ func TestSatoshiNakamotoVector(t *testing.T) {
 func TestSignRejectsBadInput(t *testing.T) {
 	good := mustHexBytes(t, signVectors[0].priv)
 	digest := make([]byte, 32)
-	if _, err := Sign(good, digest[:31]); err != ErrInvalidDigest {
+	if _, err := Sign(good, digest[:31]); !errors.Is(err, ErrInvalidDigest) {
 		t.Errorf("short digest: %v", err)
 	}
-	if _, err := Sign(make([]byte, 32), digest); err != ErrInvalidScalar {
+	if _, err := Sign(make([]byte, 32), digest); !errors.Is(err, ErrInvalidScalar) {
 		t.Errorf("zero key: %v", err)
 	}
-	if _, err := Sign(good[:31], digest); err != ErrInvalidScalar {
+	if _, err := Sign(good[:31], digest); !errors.Is(err, ErrInvalidScalar) {
 		t.Errorf("short key: %v", err)
 	}
 }
