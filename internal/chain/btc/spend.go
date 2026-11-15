@@ -56,6 +56,7 @@ type spendInput struct {
 type spendOutput struct {
 	Address string `json:"address"`
 	Value uint64 `json:"value"`
+	Path string `json:"path,omitempty"`
 }
 type spendDraft struct {
 	Version int `json:"version"`
@@ -144,7 +145,8 @@ func mustUint64(a domain.Amount) uint64 { v, _ := a.Uint64(); return v }
 // trust Prepared.Digests, Summary, Fee, or any other cached display field.
 func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
 	fail := func(err error) error { return domain.NewError(domain.CodeVerificationFailed, fmt.Errorf("%w: %v", ErrInvalidDraft, err)) }
-	if p.Network != domain.NetworkBitcoin || p.Asset != domain.BTC || in.Asset != domain.BTC { return fail(errors.New("network or asset mismatch")) }\n\tif _, ok := in.Amount.Uint64(); !ok { return fail(errors.New("amount outside satoshi range")) }
+	if p.Network != domain.NetworkBitcoin || p.Asset != domain.BTC || in.Asset != domain.BTC { return fail(errors.New("network or asset mismatch")) }
+\tif _, ok := in.Amount.Uint64(); !ok { return fail(errors.New("amount outside satoshi range")) }
 	if err := in.Validate(); err != nil { return fail(err) }
 	if err := ValidateAddress(e.profile, in.To); err != nil { return fail(err) }
 	var d spendDraft
@@ -183,7 +185,12 @@ func validateSpendDraft(d spendDraft, derive AddressDeriver) error {
 		if err := ValidateAddress(d.Profile, out.Address); err != nil || out.Value < DustThreshold { return errors.New("invalid or dust output") }
 		outputTotal.Add(outputTotal, new(big.Int).SetUint64(out.Value))
 	}
-	if len(d.Outputs) > 2 { return errors.New("unexpected output count") }\n\tif d.Outputs[0].Path != "" { return errors.New("recipient output has an unexpected derivation path") }\n\tif len(d.Outputs) == 2 {\n\t\tpath, err := hd.ParsePath(d.Outputs[1].Path); if err != nil || hd.CheckPathForNetwork(domain.NetworkBitcoin, d.Profile, path) != nil || path[3] != 1 { return errors.New("invalid change derivation path") }\n\t\tchangeAddress, gotPath, err := derive.DeriveAddress(d.Xpub, d.Profile, domain.ChainChange, path[4]); if err != nil || changeAddress != d.Outputs[1].Address || gotPath != d.Outputs[1].Path { return errors.New("change output does not match wallet xpub") }\n\t} else if len(d.Outputs) != 1 { return errors.New("unexpected output count") }
+	if len(d.Outputs) > 2 { return errors.New("unexpected output count") }
+\tif d.Outputs[0].Path != "" { return errors.New("recipient output has an unexpected derivation path") }
+\tif len(d.Outputs) == 2 {
+\t\tpath, err := hd.ParsePath(d.Outputs[1].Path); if err != nil || hd.CheckPathForNetwork(domain.NetworkBitcoin, d.Profile, path) != nil || path[3] != 1 { return errors.New("invalid change derivation path") }
+\t\tchangeAddress, gotPath, err := derive.DeriveAddress(d.Xpub, d.Profile, domain.ChainChange, path[4]); if err != nil || changeAddress != d.Outputs[1].Address || gotPath != d.Outputs[1].Path { return errors.New("change output does not match wallet xpub") }
+\t} else if len(d.Outputs) != 1 { return errors.New("unexpected output count") }
 	if new(big.Int).Sub(inputTotal, outputTotal).Cmp(new(big.Int).SetUint64(d.Fee)) != 0 { return errors.New("input/output/fee arithmetic mismatch") }
 	raw, err := hex.DecodeString(d.UnsignedTx); if err != nil { return err }
 	want, err := serializeUnsigned(d); if err != nil { return err }
