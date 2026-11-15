@@ -241,7 +241,7 @@ func digestRequests(d spendDraft, raw []byte, derive AddressDeriver) ([]ports.Di
 		txid, _ := hex.DecodeString(in.TxID)
 		var pre bytes.Buffer
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(2))
-		pre.Write(hashPrevouts); pre.Write(hashSequence)
+		pre.Write(hashPrevouts[:]); pre.Write(hashSequence[:])
 		for j:=len(txid)-1;j>=0;j-- { pre.WriteByte(txid[j]) }
 		_ = binary.Write(&pre, binary.LittleEndian, in.Vout)
 		program, err := witnessProgram(in.Address, d.Profile); if err != nil { return nil, err }
@@ -250,7 +250,7 @@ func digestRequests(d spendDraft, raw []byte, derive AddressDeriver) ([]ports.Di
 		writeCompactSize(&pre, uint64(len(scriptCode))); pre.Write(scriptCode)
 		_ = binary.Write(&pre, binary.LittleEndian, in.Value)
 		_ = binary.Write(&pre, binary.LittleEndian, btcSequenceRBF)
-		pre.Write(hashOutputs)
+		pre.Write(hashOutputs[:])
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(0))
 		_ = binary.Write(&pre, binary.LittleEndian, uint32(btcSighashAll))
 		digest := sha256d(pre.Bytes())
