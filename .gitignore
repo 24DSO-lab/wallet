@@ -2,6 +2,8 @@
 /build/bin/
 *.exe
 *.test
+# Каталог .test (архивы и vendor) это не бинарник go test, он не игнорируется
+!/.test/
 *.out
 coverage.*
 
