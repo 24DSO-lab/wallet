@@ -56,12 +56,12 @@ jobs:
           install-mode: goinstall
           args: ./internal/... ./app/...
 
-  # Включается, когда во frontend/ появляется package.json. Скрипты берутся из
-  # него: Dev 8 добавляет typecheck (vue-tsc), lint (ESLint), test (Vitest) и
-  # build; отсутствующие пропускаются (--if-present).
+  # package.json во frontend/ уже есть (заглушка Dev 1), поэтому задача идёт
+  # всегда. hashFiles() в условии задания недоступна, только в шагах. Скрипты
+  # берутся из package.json: Dev 8 добавляет typecheck (vue-tsc), lint
+  # (ESLint), test (Vitest) и build; отсутствующие пропускаются (--if-present).
   frontend:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('frontend/package.json') != '' }}
     defaults:
       run:
         working-directory: frontend

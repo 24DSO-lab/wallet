@@ -6,7 +6,7 @@
 
 | Инструмент | Версия | Источник |
 | --- | --- | --- |
-| Go | 1.27.3 (`go 1.27.3` в `go.mod`) | `wails doctor` на Windows 10 Pro 22H2; решение владельца 15 ноября 2026 |
+| Go | 1.27.4 (`go 1.27.4` в `go.mod`) | Первый выпуск с исправлением GO-2026-6859 в `net/http`; 1.27.3 его не содержит, `govulncheck` в CI падает. Решение владельца 15 ноября 2026 |
 | Wails | v2.17.0 | `wails doctor`; последний стабильный v2, v3 остаётся бета-версией (решение D1) |
 | Node.js | 24.13.1 (npm 11.8.0) | `wails doctor` |
 | WebView2 | 157.0.4341.46 | `wails doctor` |
@@ -15,7 +15,7 @@
 
 ## Что подтверждено
 
-`wails doctor` на Windows 10 Pro (build 19045), amd64: «Your system is ready for Wails development». `go.sum` создан, зависимость Wails v2.17.0 зафиксирована в `go.mod`. `wails build` на Windows (go1.27.3, Node 24.13.1) собрал `build/bin/wallet.exe` за 14,8 с, 15 ноября 2026.
+`wails doctor` на Windows 10 Pro (build 19045), amd64: «Your system is ready for Wails development». `go.sum` создан, зависимость Wails v2.17.0 зафиксирована в `go.mod`. `wails build` на Windows (на go1.27.3, до перехода на 1.27.4; повторить на 1.27.4, Node 24.13.1) собрал `build/bin/wallet.exe` за 14,8 с, 15 ноября 2026.
 
 ## Открыто
 
