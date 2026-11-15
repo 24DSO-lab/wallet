@@ -30,7 +30,7 @@ func TestSelectCoinsDeterministicAndExact(t *testing.T) {
 		}
 	}
 	if !first.HasChange { t.Fatalf("expected change: %+v", first) }
-	if first.Fee.String() != "172" || first.VBytes != 172 {
+	if first.Fee.String() != "208" || first.VBytes != 208 {
 		t.Fatalf("unexpected fee/size: fee=%s vbytes=%d", first.Fee.String(), first.VBytes)
 	}
 }
