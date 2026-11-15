@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -191,7 +192,7 @@ func (e *Esplora) GetFeeEstimates(ctx context.Context) (FeeEstimates, error) {
 		return nil, ErrMalformedResponse
 	}
 	for target, rate := range fees {
-		if _, err := strconv.Atoi(target); err != nil || rate <= 0 {
+		if _, err := strconv.Atoi(target); err != nil || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 			return nil, ErrMalformedResponse
 		}
 	}
@@ -265,4 +266,30 @@ func validTxID(s string) bool {
 	}
 	_, err := hex.DecodeString(s)
 	return err == nil
+}
+
+
+// ConservativeFeeRate returns the provider's estimate for confirmation within
+// three blocks. If that target is absent, it uses the fastest valid target
+// supplied by the provider rather than silently choosing an arbitrarily slow
+// estimate.
+func ConservativeFeeRate(estimates FeeEstimates) (float64, error) {
+	if rate, ok := estimates["3"]; ok && rate > 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0) {
+		return rate, nil
+	}
+	bestTarget := 0
+	var bestRate float64
+	for target, rate := range estimates {
+		n, err := strconv.Atoi(target)
+		if err != nil || n < 1 || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			continue
+		}
+		if bestTarget == 0 || n < bestTarget {
+			bestTarget, bestRate = n, rate
+		}
+	}
+	if bestTarget == 0 {
+		return 0, ErrMalformedResponse
+	}
+	return bestRate, nil
 }
