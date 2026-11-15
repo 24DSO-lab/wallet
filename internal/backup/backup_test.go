@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -226,6 +227,11 @@ func TestCreateKeystoreRules(t *testing.T) {
 		}
 	})
 	t.Run("unsafe name is refused", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			// NUL.json на Windows это устройство: файл не создать, проверять нечего.
+			// Правило имён покрыто TestClassifyEntry.
+			t.Skip("reserved device names cannot be created on Windows")
+		}
 		dir := t.TempDir()
 		writeKeystore(t, dir, map[string]string{"NUL.json": "-x"})
 		if _, err := newService(t, dir, fakeDB{version: testSchema}).Create(ctx, t.TempDir()); err == nil {
