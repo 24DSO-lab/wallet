@@ -1,0 +1,5 @@
+# Встроенные в бинарник файлы (go:embed) не должны зависеть от core.autocrlf:
+# на Windows с autocrlf=true они попадают на диск с CRLF и ломают логику,
+# которая делит их содержимое по "\n" (BIP39 wordlist).
+internal/hd/wordlist_english.txt text eol=lf
+internal/store/migrations/*.sql text eol=lf
