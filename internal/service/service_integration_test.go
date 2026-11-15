@@ -129,3 +129,81 @@ func TestSQLiteServiceRestartReconcilesAmbiguousBroadcast(t *testing.T) {
 		t.Fatalf("pending recovery payload remains after reconciliation: %v", err)
 	}
 }
+
+func TestServiceWalletReadImportPasswordAndSettingsUseCases(t *testing.T) {
+	ctx := context.Background()
+	svc, st := testService(t)
+	wallet := createTestWallet(t, svc)
+
+	wallets, err := svc.ListWallets(ctx)
+	if err != nil || len(wallets) != 1 || wallets[0].ID != wallet.ID {
+		t.Fatalf("ListWallets() = (%+v, %v), want the created wallet", wallets, err)
+	}
+	address, err := svc.GetReceiveAddress(ctx, wallet.ID, domain.ETH)
+	if err != nil || address.Address != wallet.ETHAddress || address.Network != domain.NetworkEthereum {
+		t.Fatalf("GetReceiveAddress(ETH) = (%+v, %v), want wallet ETH address", address, err)
+	}
+	balances, err := svc.GetBalances(ctx, wallet.ID)
+	if err != nil || len(balances) != 0 {
+		t.Fatalf("GetBalances() = (%v, %v), want empty cache", balances, err)
+	}
+	history, err := svc.GetHistory(ctx, wallet.ID, "")
+	if err != nil || len(history) != 0 {
+		t.Fatalf("GetHistory() = (%+v, %v), want empty history", history, err)
+	}
+
+	if err := svc.RenameWallet(ctx, wallet.ID, "Renamed wallet"); err != nil {
+		t.Fatalf("RenameWallet(): %v", err)
+	}
+	renamed, err := st.Wallets().Get(ctx, wallet.ID)
+	if err != nil || renamed.Name != "Renamed wallet" {
+		t.Fatalf("renamed wallet = (%+v, %v)", renamed, err)
+	}
+
+	seed, err := svc.RevealSeed(ctx, wallet.ID, testSecrets())
+	if err != nil || seed.IsEmpty() {
+		t.Fatalf("RevealSeed() returned empty seed or error: %v", err)
+	}
+	seed.Wipe()
+	if err := svc.VerifyPassword(ctx, secret.FromString("correct horse battery staple")); err != nil {
+		t.Fatalf("VerifyPassword(): %v", err)
+	}
+
+	oldPassword := secret.FromString("correct horse battery staple")
+	newPassword := secret.FromString("new integration password")
+	if err := svc.ChangePassword(ctx, oldPassword, newPassword); err != nil {
+		t.Fatalf("ChangePassword(): %v", err)
+	}
+	if !oldPassword.IsEmpty() || !newPassword.IsEmpty() {
+		t.Fatal("ChangePassword did not wipe its input secrets")
+	}
+	if err := svc.VerifyPassword(ctx, secret.FromString("new integration password")); err != nil {
+		t.Fatalf("VerifyPassword() rejected the changed password: %v", err)
+	}
+
+	if err := svc.SetSetting(ctx, "ui.language", "en"); err != nil {
+		t.Fatalf("SetSetting(): %v", err)
+	}
+	value, err := svc.GetSetting(ctx, "ui.language")
+	if err != nil || value != "en" {
+		t.Fatalf("GetSetting() = (%q, %v), want en", value, err)
+	}
+	settings, err := svc.Settings(ctx)
+	if err != nil || settings["ui.language"] != "en" {
+		t.Fatalf("Settings() = (%v, %v), want ui.language=en", settings, err)
+	}
+
+	mnemonic := secret.FromString("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+	importSecrets := ports.Secrets{Password: secret.FromString("new integration password")}
+	imported, err := svc.ImportWallet(ctx, "Imported wallet", mnemonic, importSecrets)
+	if err != nil {
+		t.Fatalf("ImportWallet(): %v", err)
+	}
+	if !mnemonic.IsEmpty() || !importSecrets.Password.IsEmpty() {
+		t.Fatal("ImportWallet did not wipe its input secrets")
+	}
+	wallets, err = svc.ListWallets(ctx)
+	if err != nil || len(wallets) != 2 || wallets[1].ID != imported.ID {
+		t.Fatalf("ListWallets() after import = (%+v, %v), want two wallets", wallets, err)
+	}
+}
