@@ -14,7 +14,11 @@ import (
 	"math/bits"
 	"strings"
 
+	"crypto/sha256"
+
 	"github.com/24DSO-lab/wallet/internal/hd/internal/base58"
+	"github.com/24DSO-lab/wallet/internal/hd/internal/ripemd160"
+	"github.com/24DSO-lab/wallet/internal/hd/secp256k1"
 )
 
 var keccakRC = [24]uint64{
@@ -177,4 +181,16 @@ func P2WPKHAddress(hrp string, hash160 [20]byte) string {
 		sb.WriteByte(bech32Charset[pm>>(5*(5-i))&31])
 	}
 	return sb.String()
+}
+
+// P2WPKHFromPublicKey строит адрес P2WPKH (hrp bc или tb) из несжатого ключа
+// в 65 байт: так будет выглядеть функция адреса BTC для keystore.
+func P2WPKHFromPublicKey(hrp string, pub []byte) (string, error) {
+	p, err := secp256k1.ParsePoint(pub)
+	if err != nil || len(pub) != 65 {
+		return "", errors.New("hdtest: need a valid 65-byte uncompressed key")
+	}
+	c := p.Compressed()
+	s := sha256.Sum256(c[:])
+	return P2WPKHAddress(hrp, ripemd160.Sum(s[:])), nil
 }
