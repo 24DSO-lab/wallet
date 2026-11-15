@@ -224,7 +224,7 @@ func (e *Esplora) GetTransactionStatus(ctx context.Context, txid string) (TxStat
 	if err := e.getJSON(ctx, "/tx/"+txid+"/status", &status); err != nil {
 		return TxStatus{}, err
 	}
-	return TxStatus{Confirmed: status.Confirmed, BlockHeight: status.BlockHeight, BlockTime: status.BlockTime}, nil
+	return TxStatus(status), nil
 }
 
 // BroadcastRaw sends a raw transaction exactly once. provider.Client must not
