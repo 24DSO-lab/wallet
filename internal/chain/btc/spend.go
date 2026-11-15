@@ -147,7 +147,7 @@ func mustUint64(a domain.Amount) uint64 { v, _ := a.Uint64(); return v }
 // Verify deliberately decodes and validates Draft from scratch. It does not
 // trust Prepared.Digests, Summary, Fee, or any other cached display field.
 func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
-	fail := func(err error) error { return domain.NewError(domain.CodeVerificationFailed, fmt.Errorf("%w: %v", ErrInvalidDraft, err)) }
+	fail := func(err error) error { return domain.NewError(domain.CodeVerificationFailed, fmt.Errorf("%w: %w", ErrInvalidDraft, err)) }
 	if p.Network != domain.NetworkBitcoin || p.Asset != domain.BTC || in.Asset != domain.BTC { return fail(errors.New("network or asset mismatch")) }
 	if _, ok := in.Amount.Uint64(); !ok { return fail(errors.New("amount outside satoshi range")) }
 	if err := in.Validate(); err != nil { return fail(err) }
@@ -324,9 +324,15 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 	return ports.Signed{Network:domain.NetworkBitcoin,TxID:domain.TxID(hex.EncodeToString(reversed)),Raw:signedRaw},nil
 }
 
+func derLength(n int) byte {
+	// DER integers from a 32-byte scalar are at most 33 bytes.
+	//nolint:gosec // bounded by the fixed-size secp256k1 scalar.
+	return byte(n)
+}
+
 func encodeDERSignature(r,s []byte)[]byte{
-	integer:=func(v []byte)[]byte{for len(v)>1&&v[0]==0{v=v[1:]};out:=append([]byte(nil),v...);if out[0]&0x80!=0{out=append([]byte{0},out...)};return append([]byte{0x02,byte(len(out))},out...)}
-	ri,si:=integer(r),integer(s);seq:=append(ri,si...);return append([]byte{0x30,byte(len(seq))},seq...)
+	integer:=func(v []byte)[]byte{for len(v)>1&&v[0]==0{v=v[1:]};out:=append([]byte(nil),v...);if out[0]&0x80!=0{out=append([]byte{0},out...)};return append([]byte{0x02,derLength(len(out))},out...)}
+	ri,si:=integer(r),integer(s);seq:=append(ri,si...);return append([]byte{0x30,derLength(len(seq))},seq...)
 }
 
 func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
@@ -338,13 +344,13 @@ func serializeWitness(unsigned []byte,witnesses [][][]byte)([]byte,error){
 	inputStart:=pos
 	for i:=uint64(0);i<n;i++{
 		if pos+36>len(unsigned){return nil,ErrInvalidDraft};pos+=36
-		scriptLen,u,e:=readCompactSize(unsigned[pos:]);if e!=nil{return nil,e};pos+=u+int(scriptLen)+4
+		scriptLen,u,e:=readCompactSize(unsigned[pos:]);if e!=nil||u+4>len(unsigned)-pos{return nil,ErrInvalidDraft};if scriptLen>uint64(len(unsigned)-pos-u-4){return nil,ErrInvalidDraft};pos+=u+int(scriptLen)+4
 		if pos>len(unsigned){return nil,ErrInvalidDraft}
 	}
 	outputStart:=pos
 	out.Write(unsigned[inputStart:outputStart])
 	outputCount,u,err:=readCompactSize(unsigned[pos:]);if err!=nil{return nil,err};pos+=u
-	for i:=uint64(0);i<outputCount;i++{if pos+8>len(unsigned){return nil,ErrInvalidDraft};pos+=8;l,u,e:=readCompactSize(unsigned[pos:]);if e!=nil{return nil,e};pos+=u+int(l);if pos>len(unsigned){return nil,ErrInvalidDraft}}
+	for i:=uint64(0);i<outputCount;i++{if pos+8>len(unsigned){return nil,ErrInvalidDraft};pos+=8;l,u,e:=readCompactSize(unsigned[pos:]);if e!=nil||u>len(unsigned)-pos{return nil,ErrInvalidDraft};if l>uint64(len(unsigned)-pos-u){return nil,ErrInvalidDraft};pos+=u+int(l)}
 	out.Write(unsigned[outputStart:pos])
 	for _,w:=range witnesses{writeCompactSize(&out,uint64(len(w)));for _,item:=range w{writeCompactSize(&out,uint64(len(item)));out.Write(item)}}
 	if pos+4!=len(unsigned){return nil,ErrInvalidDraft};out.Write(unsigned[pos:])
@@ -430,7 +436,7 @@ func stripWitness(raw []byte) ([]byte, error) {
 		if pos+36 > len(raw) { return nil, ErrInvalidDraft }
 		pos += 36
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
+		if err != nil || n+4 > len(raw)-pos || scriptLen > uint64(len(raw)-pos-n-4) { return nil, ErrInvalidDraft }
 		pos += n + int(scriptLen) + 4
 		if pos > len(raw) { return nil, ErrInvalidDraft }
 		base.Write(raw[start:pos])
@@ -444,7 +450,7 @@ func stripWitness(raw []byte) ([]byte, error) {
 		if pos+8 > len(raw) { return nil, ErrInvalidDraft }
 		pos += 8
 		scriptLen, n, err := readCompactSize(raw[pos:])
-		if err != nil || scriptLen > uint64(len(raw)) { return nil, ErrInvalidDraft }
+		if err != nil || n > len(raw)-pos || scriptLen > uint64(len(raw)-pos-n) { return nil, ErrInvalidDraft }
 		pos += n + int(scriptLen)
 		if pos > len(raw) { return nil, ErrInvalidDraft }
 		base.Write(raw[start:pos])
