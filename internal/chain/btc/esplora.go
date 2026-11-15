@@ -192,7 +192,8 @@ func (e *Esplora) GetFeeEstimates(ctx context.Context) (FeeEstimates, error) {
 		return nil, ErrMalformedResponse
 	}
 	for target, rate := range fees {
-		if _, err := strconv.Atoi(target); err != nil || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		n, err := strconv.Atoi(target)
+		if err != nil || n < 1 || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
 			return nil, ErrMalformedResponse
 		}
 	}
