@@ -127,12 +127,14 @@ func convertBits(data []byte, from, to uint, pad bool) ([]byte, error) {
 		bits += from
 		for bits >= to {
 			bits -= to
-			out = append(out, byte((acc>>bits)&maxv))
+			//nolint:gosec // the mask constrains this value to the 5-bit Bech32 alphabet.
+\t\t\tout = append(out, byte((acc>>bits)&maxv))
 		}
 	}
 	if pad {
 		if bits > 0 {
-			out = append(out, byte((acc<<(to-bits))&maxv))
+			//nolint:gosec // the mask constrains this value to the 5-bit Bech32 alphabet.
+\t\t\tout = append(out, byte((acc<<(to-bits))&maxv))
 		}
 	} else if bits >= from || ((acc<<(to-bits))&maxv) != 0 {
 		return nil, ErrInvalidAddress
