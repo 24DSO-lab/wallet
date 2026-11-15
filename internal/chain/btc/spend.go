@@ -163,6 +163,25 @@ func (e *SpendEngine) Verify(p ports.Prepared, in domain.SendIntent) error {
 	}
 	if len(d.Inputs) > 1000 || len(d.Outputs) > 2 { return fail(errors.New("transaction size limits exceeded")) }
 	if err := validateSpendDraft(d, e.derive); err != nil { return fail(err) }
+	raw, err := hex.DecodeString(d.UnsignedTx)
+	if err != nil { return fail(err) }
+	expectedDigests, err := digestRequests(d, raw, e.derive)
+	if err != nil { return fail(err) }
+	if len(p.Digests) != len(expectedDigests) { return fail(errors.New("digest request count mismatch")) }
+	for i := range expectedDigests {
+		if p.Digests[i] != expectedDigests[i] { return fail(fmt.Errorf("digest request %d differs from transaction", i)) }
+	}
+	fee := domain.AmountFromUint64(d.Fee)
+	amount := domain.AmountFromUint64(d.Amount)
+	total, err := amount.Add(fee)
+	if err != nil { return fail(err) }
+	if !p.Fee.Equal(fee) || p.FeeAsset != domain.BTC ||
+		p.Summary.Network != domain.NetworkBitcoin || p.Summary.Asset != domain.BTC ||
+		p.Summary.To != d.To || !p.Summary.Amount.Equal(amount) ||
+		!p.Summary.Fee.Equal(fee) || p.Summary.FeeAsset != domain.BTC ||
+		!p.Summary.Total.Equal(total) {
+		return fail(errors.New("prepared display summary differs from transaction draft"))
+	}
 	return nil
 }
 
