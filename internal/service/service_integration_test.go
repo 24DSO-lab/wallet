@@ -1,0 +1,131 @@
+package service_test
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/ports"
+	"github.com/24DSO-lab/wallet/internal/secret"
+	"github.com/24DSO-lab/wallet/internal/service"
+	"github.com/24DSO-lab/wallet/internal/store"
+	"github.com/24DSO-lab/wallet/internal/testkit"
+)
+
+func TestSQLiteServiceRestartReconcilesAmbiguousBroadcast(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "wallet.db")
+	db, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	const walletID = "integration-wallet"
+	const txID domain.TxID = "integration-transaction"
+	const password = "correct horse battery staple"
+	keystore := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
+		Password: []byte(password),
+		PublicKeys: ports.PublicKeys{
+			BTCXpub:     "tpub-integration",
+			ETHAddress:  "0x1111111111111111111111111111111111111111",
+			TronAddress: "T1111111111111111111111111111111111",
+		},
+	})
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network: domain.NetworkBitcoin,
+		Prepared: ports.Prepared{
+			Network:  domain.NetworkBitcoin,
+			Asset:    domain.BTC,
+			Draft:    []byte("unsigned draft"),
+			Fee:      domain.AmountFromUint64(2),
+			FeeAsset: domain.BTC,
+		},
+		Signed: ports.Signed{
+			Network: domain.NetworkBitcoin,
+			TxID:    txID,
+			Raw:     []byte("signed transaction"),
+		},
+		TxID:   txID,
+		Status: ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 42, Confirmations: 3},
+		Failures: map[testkit.ChainOperation]error{
+			testkit.ChainBroadcast: errors.New("connection lost after submission"),
+		},
+	})
+	chain.SetSnapshot(ports.Snapshot{
+		Asset:   domain.BTC,
+		Balance: domain.Balance{Confirmed: domain.AmountFromUint64(1000)},
+		Addresses: []domain.Address{{
+			WalletID: walletID, Network: domain.NetworkBitcoin, Address: "bc1qintegration",
+			Path: "m/84'/1'/0'/0/0", Chain: domain.ChainReceive,
+		}},
+		UTXOs: []domain.UTXO{{WalletID: walletID, TxID: "funding-tx", Amount: domain.AmountFromUint64(1000)}},
+	})
+
+	newService := func(db ports.Store) *service.Service {
+		t.Helper()
+		svc, err := service.New(db, keystore, []ports.ChainAdapter{chain}, service.WithIDGenerator(func() (string, error) {
+			return walletID, nil
+		}))
+		if err != nil {
+			t.Fatalf("construct service: %v", err)
+		}
+		return svc
+	}
+	secrets := func() ports.Secrets {
+		return ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString("test passphrase")}
+	}
+
+	svc := newService(db)
+	wallet, mnemonic, err := svc.CreateWallet(ctx, "SQLite integration", 12, secrets())
+	if err != nil {
+		t.Fatalf("create wallet: %v", err)
+	}
+	mnemonic.Wipe()
+	if _, err := svc.RefreshWallet(ctx, wallet.ID, domain.BTC); err != nil {
+		t.Fatalf("refresh wallet: %v", err)
+	}
+
+	intent := domain.SendIntent{
+		Wallet: wallet.PublicWallet,
+		Asset:  domain.BTC,
+		To:     "bc1qrecipient",
+		Amount: domain.AmountFromUint64(100),
+	}
+	prepared, err := svc.PrepareSend(ctx, intent)
+	if err != nil {
+		t.Fatalf("prepare send: %v", err)
+	}
+	if _, err := svc.ConfirmSend(ctx, wallet.ID, intent, prepared, secrets()); err == nil {
+		t.Fatal("expected ambiguous broadcast error")
+	}
+	if pending, err := db.PendingTxs().Get(ctx, txID); err != nil || string(pending.Raw) != "signed transaction" {
+		t.Fatalf("pending signed payload = (%+v, %v), want persisted payload", pending, err)
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close store before restart: %v", err)
+	}
+	db, err = store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+
+	restarted := newService(db)
+	count, err := restarted.ReconcilePending(ctx)
+	if err != nil || count != 1 {
+		t.Fatalf("reconcile after restart = (%d, %v), want (1, nil)", count, err)
+	}
+	history, err := restarted.GetHistory(ctx, wallet.ID, domain.BTC)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history after reconciliation = (%+v, %v), want one row", history, err)
+	}
+	if history[0].TxID != txID || history[0].Status != domain.TxConfirmed || history[0].BlockHeight != 42 {
+		t.Fatalf("reconciled history = %+v, want confirmed transaction at height 42", history[0])
+	}
+	if _, err := db.PendingTxs().Get(ctx, txID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("pending recovery payload remains after reconciliation: %v", err)
+	}
+}
