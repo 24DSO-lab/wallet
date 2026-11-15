@@ -55,7 +55,7 @@ func TestHDAddressDeriverRejectsInvalidXpubAndProfile(t *testing.T) {
 	if _, _, err := deriver.DeriveAddress("not-an-xpub", domain.ProfileTest, domain.AddressChain("other"), 0); err == nil {
 		t.Fatal("expected invalid chain error")
 	}
-	if _, _, err := deriver.DeriveAddress("not-an-xpub", domain.ProfileTest, domain.ChainReceive, hdHardenedIndex); err == nil {
+	if _, _, err := deriver.DeriveAddress("not-an-xpub", domain.ProfileTest, domain.ChainReceive, 0x80000000); err == nil {
 		t.Fatal("expected hardened address index error")
 	}
 }
