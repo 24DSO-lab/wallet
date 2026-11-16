@@ -6,7 +6,7 @@ import { api } from './api/client'
 import type { Asset, Profile, Wallet, Tx, Quote } from './api/types'
 import { formatAmount } from './lib/amount'
 const router=useRouter(),route=useRoute();const locked=ref(true),profile=ref<Profile>('test'),wallets=ref<Wallet[]>([]),selected=ref(''),page=ref('home'),password=ref(''),error=ref(''),busy=ref(false),history=ref<Tx[]>([]),filter=ref<Asset|'ALL'>('ALL'),asset=ref<Asset>('BTC'),recipient=ref(''),amount=ref(''),quote=ref<Quote>(),passphrase=ref(''),name=ref('Новый кошелёк'),seed=ref(''),mnemonic=ref(''),wordCount=ref<12|24>(12),mode=ref<'create'|'import'>('create'),step=ref(1),challengePositions=ref<number[]>([]),challengeAnswers=ref<[string,string,string]>(['','','']),qr=ref(''),address=ref(''),timeout=ref(5),newName=ref(''),notice=ref(''),refreshingId=ref('');const current=computed(()=>wallets.value.find(w=>w.id===selected.value));const assets:Asset[]=['BTC','ETH','USDC','USDT'];const seedVisible=ref(false)
-const clipboard=navigator.clipboard
+const clipboard=globalThis.navigator.clipboard
 watch(page,p=>{const path=p==='home'?'/':'/'+p;if(route.path!==path)void router.replace(path)})
 watch(()=>route.path,p=>{const next=p==='/'?'home':p.slice(1);if(next&&next!==page.value)page.value=next})
 watch(page,(next,previous)=>{if(previous==='wizard'&&next!=='wizard'){seed.value='';mnemonic.value='';seedVisible.value=false;challengePositions.value=[];challengeAnswers.value=['','',''];password.value='';passphrase.value=''}if(['send','review','confirm'].includes(previous)&&!['send','review','confirm'].includes(next)){password.value='';passphrase.value=''}})
