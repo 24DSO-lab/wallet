@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 test('lock screen and test network are visible', async ({ page }) => {
+  page.on('console', message => { if (message.type() === 'error') console.log('[browser console]', message.text()) })
+  page.on('pageerror', error => console.log('[browser pageerror]', error.message))
   await page.goto('/')
   await expect(page.getByText('Кошелёк заблокирован')).toBeVisible()
   await page.getByLabel('Пароль').fill('test-password')
@@ -11,6 +13,8 @@ test('lock screen and test network are visible', async ({ page }) => {
 })
 
 test('receives, sends and shows a transaction in history on the mock profile', async ({ page }) => {
+  page.on('console', message => { if (message.type() === 'error') console.log('[browser console]', message.text()) })
+  page.on('pageerror', error => console.log('[browser pageerror]', error.message))
   await page.goto('/')
   await page.getByLabel('Пароль').fill('test-password')
   await page.getByRole('button', { name: 'Разблокировать' }).click()
