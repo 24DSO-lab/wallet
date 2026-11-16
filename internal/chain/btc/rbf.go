@@ -28,7 +28,7 @@ func (e *SpendEngine) PrepareReplacement(ctx context.Context, wallet domain.Publ
 	if err != nil {
 		return ports.Replacement{}, err
 	}
-	if status.State != domain.TxPending {
+	if status.State != domain.TxPending || !status.Known {
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: only an unconfirmed transaction can be replaced"))
 	}
 	hasDescendants, err := e.api.HasSpentOutputs(ctx, string(original.TxID))
@@ -151,7 +151,7 @@ func (e *SpendEngine) VerifyReplacement(ctx context.Context, wallet domain.Publi
 	if err != nil {
 		return err
 	}
-	if status.State != domain.TxPending {
+	if status.State != domain.TxPending || !status.Known {
 		return fail(errors.New("original transaction is no longer pending"))
 	}
 	hasDescendants, err := e.api.HasSpentOutputs(ctx, string(original.TxID))
