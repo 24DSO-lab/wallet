@@ -111,7 +111,9 @@ func (a *App) requireUnlocked() error {
 	if a.locked {
 		return errors.New("session_locked")
 	}
-	if a.lockTimer != nil {
+	if a.lockTimer == nil {
+		a.lockTimer = time.AfterFunc(a.lockTimeout, a.Lock)
+	} else {
 		a.lockTimer.Reset(a.lockTimeout)
 	}
 	return nil
@@ -195,6 +197,9 @@ func (a *App) CreateWallet(name string, words int, password, passphrase string) 
 	if err := a.ready(); err != nil {
 		return CreateWalletDTO{}, err
 	}
+	if err := a.requireUnlocked(); err != nil {
+		return CreateWalletDTO{}, err
+	}
 	if password == "" {
 		return CreateWalletDTO{}, errors.New("invalid_input")
 	}
@@ -218,6 +223,9 @@ func (a *App) CreateWallet(name string, words int, password, passphrase string) 
 // consumed and wiped by the service before this method returns.
 func (a *App) ImportWallet(name, mnemonic, password, passphrase string) (WalletDTO, error) {
 	if err := a.ready(); err != nil {
+		return WalletDTO{}, err
+	}
+	if err := a.requireUnlocked(); err != nil {
 		return WalletDTO{}, err
 	}
 	if password == "" || mnemonic == "" {
@@ -370,6 +378,10 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	if ok && time.Now().After(draft.expires) {
 		delete(a.drafts, draftID)
 		ok = false
+	} else if ok {
+		// Consume atomically with lookup: a second concurrent confirmation
+		// must not obtain the same draft.
+		delete(a.drafts, draftID)
 	}
 	a.mu.Unlock()
 	if !ok {
@@ -379,9 +391,6 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	if err != nil {
 		return "", safeError(err)
 	}
-	a.mu.Lock()
-	delete(a.drafts, draftID)
-	a.mu.Unlock()
 	return string(txid), nil
 }
 
