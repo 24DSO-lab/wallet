@@ -24,7 +24,6 @@ const (
 	btcDraftVersion = 1
 	btcSequenceRBF  = uint32(0xfffffffd)
 	btcSighashAll   = byte(0x01)
-	DefaultIncrementalRelayFeeRate = uint64(1) // sat/vB; Bitcoin Core default policy, override for other node policies.
 )
 
 var (
@@ -39,7 +38,6 @@ type SpendEngine struct {
 	scanner *Scanner
 	derive AddressDeriver
 	profile domain.Profile
-	incrementalRelayFeeRate uint64
 }
 
 func NewSpendEngine(api *Esplora, scanner *Scanner, derive AddressDeriver) (*SpendEngine, error) {
@@ -47,7 +45,7 @@ func NewSpendEngine(api *Esplora, scanner *Scanner, derive AddressDeriver) (*Spe
 		return nil, errors.New("btc: Esplora, scanner and address deriver are required")
 	}
 	if scanner.profile != api.Profile() || scanner.api != api { return nil, errors.New("btc: scanner and provider configuration differ") }
-	return &SpendEngine{api:api, scanner:scanner, derive:derive, profile:api.Profile(), incrementalRelayFeeRate:DefaultIncrementalRelayFeeRate}, nil
+	return &SpendEngine{api:api, scanner:scanner, derive:derive, profile:api.Profile()}, nil
 }
 
 type spendInput struct {
@@ -593,26 +591,4 @@ func (e *SpendEngine) verifyLiveUTXOs(d spendDraft) error {
 		}
 	}
 	return nil
-}
-
-
-// SetIncrementalRelayFeeRate configures the node's BIP125 incremental relay
-// fee policy in sat/vB. It must be set from the actual target node policy;
-// one sat/vB is only Bitcoin Core's default, not a network-wide guarantee.
-func (e *SpendEngine) SetIncrementalRelayFeeRate(rate uint64) error {
-	if rate == 0 || rate > 1000000 {
-		return errors.New("btc: incremental relay fee rate is outside supported range")
-	}
-	e.incrementalRelayFeeRate = rate
-	return nil
-}
-
-// replacementVSize conservatively accounts for ECDSA witness signatures that
-// may be up to two bytes larger per input than those in the original tx.
-func replacementVSize(raw, stripped []byte, inputs int) (uint64, error) {
-	vsize := virtualSize(raw, stripped)
-	if vsize == 0 || inputs <= 0 || uint64(inputs) > (^uint64(0)-vsize)/2 {
-		return 0, errors.New("btc: invalid replacement virtual size")
-	}
-	return vsize + uint64(inputs)*2, nil
 }

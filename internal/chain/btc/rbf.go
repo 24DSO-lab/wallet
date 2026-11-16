@@ -52,8 +52,8 @@ func (e *SpendEngine) PrepareReplacement(ctx context.Context, wallet domain.Publ
 		return ports.Replacement{}, domain.NewError(domain.CodeVerificationFailed, errors.New("btc: stored signed transaction does not match its original draft"))
 	}
 
-	vsize, err := replacementVSize(original.Raw, stripped, len(oldDraft.Inputs))
-	if err != nil || e.incrementalRelayFeeRate == 0 || oldDraft.Fee > ^uint64(0)-vsize {
+	vsize := virtualSize(original.Raw, stripped)
+	if vsize == 0 || oldDraft.Fee > ^uint64(0)-vsize {
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: invalid original transaction size or fee"))
 	}
 	estimates, err := e.api.GetFeeEstimates(ctx)
@@ -69,12 +69,10 @@ func (e *SpendEngine) PrepareReplacement(ctx context.Context, wallet domain.Publ
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: replacement fee exceeds supported range"))
 	}
 	newFee := uint64(target)
-	// BIP125 requires original absolute fee plus incremental relay fee
-	// multiplied by the replacement's conservative virtual size.
-	if vsize > (^uint64(0)-oldDraft.Fee)/e.incrementalRelayFeeRate {
-		return ports.Replacement{}, domain.NewError(domain.CodeInvalidAmount, errors.New("btc: minimum replacement fee overflows"))
-	}
-	minimumFee := oldDraft.Fee + vsize*e.incrementalRelayFeeRate
+	// BIP125 requires the replacement to pay the original absolute fee plus
+	// the incremental relay fee. Esplora's default incremental relay rate is
+	// one sat/vbyte, so add one sat/vbyte for the replacement's full vsize.
+	minimumFee := oldDraft.Fee + vsize
 	if newFee < minimumFee {
 		newFee = minimumFee
 	}
@@ -191,8 +189,8 @@ func (e *SpendEngine) VerifyReplacement(ctx context.Context, wallet domain.Publi
 			return fail(errors.New("replacement changed an original input"))
 		}
 	}
-	vsize, sizeErr := replacementVSize(original.Raw, stripped, len(newDraft.Inputs))
-	if sizeErr != nil || e.incrementalRelayFeeRate == 0 || vsize > (^uint64(0)-oldDraft.Fee)/e.incrementalRelayFeeRate || newDraft.Fee < oldDraft.Fee+vsize*e.incrementalRelayFeeRate {
+	vsize := virtualSize(original.Raw, stripped)
+	if vsize == 0 || oldDraft.Fee > ^uint64(0)-vsize || newDraft.Fee < oldDraft.Fee+vsize {
 		return fail(errors.New("replacement does not meet the incremental relay fee requirement"))
 	}
 	if oldDraft.Outputs[1].Value-newDraft.Outputs[1].Value != newDraft.Fee-oldDraft.Fee {
