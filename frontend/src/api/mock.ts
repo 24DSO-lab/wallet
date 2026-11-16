@@ -108,7 +108,7 @@ export function mockApi(): Api {
     async prepare(_id, asset: WalletAsset, to, amount): Promise<Quote> {
       guard()
       await wait()
-      if (!to.trim() || !/^\\d+(\\.\\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
+      if (!to.trim() || !/^\d+(\.\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
       return {
         draftId: crypto.randomUUID(),
         asset,
