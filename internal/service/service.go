@@ -567,8 +567,6 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
 	if walletID == "" || intent.Wallet.ID != walletID {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("wallet id does not match send intent"))
