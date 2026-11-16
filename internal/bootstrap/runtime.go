@@ -272,7 +272,24 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string) (*servi
 
 	rebuilt, err := r.build(ctx, profile)
 	if err != nil {
-		return nil, fmt.Errorf("open restored wallet (previous data retained at %s): %w", result.PreviousDir, err)
+		if result.PreviousDir == "" {
+			return nil, fmt.Errorf("open restored wallet; no previous profile data was available for rollback: %w", err)
+		}
+		if rollbackErr := current.backup.Rollback(result.PreviousDir); rollbackErr != nil {
+			return nil, errors.Join(
+				fmt.Errorf("open restored wallet: %w", err),
+				fmt.Errorf("rollback to previous wallet failed; recovery data retained: %w", rollbackErr),
+			)
+		}
+		previous, reopenErr := r.build(ctx, profile)
+		if reopenErr != nil {
+			return nil, errors.Join(
+				fmt.Errorf("open restored wallet: %w", err),
+				fmt.Errorf("reopen rolled-back wallet: %w", reopenErr),
+			)
+		}
+		r.profiles[profile] = previous
+		return previous.service, fmt.Errorf("restored wallet could not be opened; previous wallet was restored: %w", err)
 	}
 	r.profiles[profile] = rebuilt
 	return rebuilt.service, nil
