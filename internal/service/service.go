@@ -75,8 +75,6 @@ type Service struct {
 	lifecycle   sync.Mutex
 	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
 	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
-	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
-	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
 }
 
 // New validates and copies all dependencies. A chain map entry must be keyed
