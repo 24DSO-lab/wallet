@@ -148,6 +148,45 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	}
 }
 
+
+func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
+	const txid domain.TxID = "confirmed-after-ambiguous-broadcast"
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network:  domain.NetworkBitcoin,
+		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
+		Signed:   ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{7, 8, 9}},
+		Status:   ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 100, Confirmations: 1},
+		Failures: map[testkit.ChainOperation]error{
+			testkit.ChainBroadcast: errors.New("connection closed after submit"),
+		},
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+	intent := domain.SendIntent{
+		Wallet: wallet.PublicWallet, Asset: domain.BTC,
+		To: "bc1qrecipient", Amount: domain.AmountFromUint64(100),
+	}
+	initial := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{1}}
+	if got, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, initial, testSecrets()); got != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ConfirmSend = (%q, %v), want persisted txid and broadcast_unknown", got, err)
+	}
+
+	prepared, err := svc.PrepareSend(context.Background(), intent)
+	if err != nil {
+		t.Fatalf("PrepareSend after confirmed reconciliation: %v", err)
+	}
+	if prepared.Network != domain.NetworkBitcoin || prepared.Asset != domain.BTC {
+		t.Fatalf("unexpected replacement quote: %+v", prepared)
+	}
+	if _, err := st.PendingTxs().Get(context.Background(), txid); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("confirmed pending payload was not removed: %v", err)
+	}
+	history, err := st.Transactions().Get(context.Background(), wallet.ID, domain.BTC, txid)
+	if err != nil || history.Status != domain.TxConfirmed || history.BlockHeight != 100 {
+		t.Fatalf("history was not reconciled: %+v, %v", history, err)
+	}
+}
+
 func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testing.T) {
 	const txid domain.TxID = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
