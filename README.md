@@ -57,3 +57,11 @@ Encrypted keystore files and the SQLite database remain local. Backups are writt
 The CI workflow checks frontend install, typecheck, lint, unit tests and production build; Go build, vet, race-enabled tests and vulnerability scanning on Ubuntu and Windows; and the Windows Wails executable build.
 
 Exchange/swap functionality is intentionally outside the initial wallet scope.
+
+## Приёмка перед использованием
+
+Автоматические проверки сборки и тестов запускаются в GitHub Actions. Они не
+заменяют реальные тестовые отправки и сверку истории с обозревателями. Статус
+гейтов ADR-001 и необходимые доказательства см. в [docs/gates](docs/gates/README.md).
+До закрытия гейтов 1, 2, 3 и 5 не используйте приложение для реальных сумм.
+Этап обмена отложен отдельным решением и не входит в v1.
