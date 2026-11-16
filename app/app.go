@@ -584,13 +584,16 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	}
 	txid, err := a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	a.mu.Lock()
-	if err != nil {
-		// Release the draft on failure so the user may retry confirmation.
+	if err != nil && txid == "" {
+		// Failures before a signed transaction is persisted are safe to retry.
 		if current, exists := a.drafts[draftID]; exists {
 			current.inFlight = false
 			a.drafts[draftID] = current
 		}
 	} else {
+		// A non-empty txid means the signed payload is durable in pending_tx.
+		// Never reuse this draft: reconciliation, not another confirmation,
+		// determines whether the network accepted the transaction.
 		delete(a.drafts, draftID)
 	}
 	a.mu.Unlock()
