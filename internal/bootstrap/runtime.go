@@ -214,14 +214,16 @@ func (r *Runtime) switchProfile(ctx context.Context, profile domain.Profile) (*s
 	return current.service, nil
 }
 
-func (r *Runtime) createBackup(ctx context.Context) error {
+func (r *Runtime) createBackup(ctx context.Context, destination string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	current, ok := r.profiles[r.active]
 	if !ok || current.backup == nil {
 		return errors.New("backup service is unavailable")
 	}
-	destination := filepath.Join(r.baseDir, string(r.active), "backups")
+	if destination == "" {
+		return errors.New("backup destination is empty")
+	}
 	_, err := current.backup.Create(ctx, destination)
 	return err
 }
