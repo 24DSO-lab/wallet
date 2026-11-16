@@ -37,7 +37,9 @@ test('receives, sends and shows a transaction in history on the mock profile', a
 
   await expect(page.getByRole('heading', { name: 'Проверьте перевод' })).toBeVisible()
   await expect(page.getByText('tb1qrecipient0000000000000000000000000000000')).toBeVisible()
-  await expect(page.getByText('0.001 BTC')).toBeVisible()
+  await expect(
+    page.locator('dt').filter({ hasText: 'Сумма' }).locator('xpath=following-sibling::dd[1]'),
+  ).toHaveText('0.001 BTC')
   await page.getByRole('button', { name: 'Далее' }).click()
 
   await page.locator('input[type="password"]').fill('test-password')
