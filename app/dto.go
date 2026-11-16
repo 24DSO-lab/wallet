@@ -31,6 +31,7 @@ type BalanceDTO struct {
 	Asset      string `json:"asset"`
 	Network    string `json:"network"`
 	Amount     string `json:"amount"`
+	PendingAmount string `json:"pendingAmount"`
 	Decimals   uint8  `json:"decimals"`
 	UpdatedAt  string `json:"updatedAt"`
 	FeeAsset   string `json:"feeAsset,omitempty"`
@@ -70,7 +71,7 @@ func walletDTO(w domain.Wallet, records map[domain.Asset]ports.BalanceRecord) Wa
 		if !ok {
 			continue
 		}
-		b := BalanceDTO{Asset: string(asset), Network: string(info.Network), Amount: record.Balance.Confirmed.String(), Decimals: info.Decimals, UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+		b := BalanceDTO{Asset: string(asset), Network: string(info.Network), Amount: record.Balance.Confirmed.String(), PendingAmount: record.Balance.Pending.String(), Decimals: info.Decimals, UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano)}
 		if info.FeeAsset != asset {
 			if fee, exists := records[info.FeeAsset]; exists {
 				b.FeeAsset = string(info.FeeAsset)
