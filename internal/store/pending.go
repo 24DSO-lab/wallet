@@ -17,9 +17,11 @@ func scanPending(r rowScanner) (ports.PendingTx, error) {
 		p  ports.PendingTx
 		at int64
 	)
-	if err := r.Scan(&p.TxID, &p.WalletID, &p.Asset, &p.Network, &p.Raw, &at); err != nil {
+	var accepted int
+	if err := r.Scan(&p.TxID, &p.WalletID, &p.Asset, &p.Network, &p.Raw, &p.Draft, &accepted, &p.ReplacesTxID, &at); err != nil {
 		return ports.PendingTx{}, err
 	}
+	p.BroadcastAccepted = accepted == 1
 	p.CreatedAt = fromDBTime(at)
 	return p, nil
 }
@@ -37,12 +39,13 @@ func (r pendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 	}
 	return r.s.write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO pending_tx (txid, wallet_id, asset, network, raw, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?)
+			`INSERT INTO pending_tx (txid, wallet_id, asset, network, raw, draft, broadcast_accepted, replaces_txid, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT (txid) DO UPDATE SET
 			   wallet_id = excluded.wallet_id, asset = excluded.asset,
-			   network = excluded.network, raw = excluded.raw`,
-			p.TxID, p.WalletID, p.Asset, p.Network, p.Raw, toDBTime(p.CreatedAt))
+			   network = excluded.network, raw = excluded.raw, draft = excluded.draft,
+			   broadcast_accepted = excluded.broadcast_accepted, replaces_txid = excluded.replaces_txid`,
+			p.TxID, p.WalletID, p.Asset, p.Network, p.Raw, p.Draft, boolInt(p.BroadcastAccepted), p.ReplacesTxID, toDBTime(p.CreatedAt))
 		if err != nil {
 			if isForeignKey(err) {
 				return notFound(fmt.Sprintf("wallet %q", p.WalletID))
@@ -55,7 +58,7 @@ func (r pendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 
 func (r pendingRepo) Get(ctx context.Context, id domain.TxID) (ports.PendingTx, error) {
 	p, err := scanPending(r.s.reader().QueryRowContext(ctx,
-		`SELECT txid, wallet_id, asset, network, raw, created_at FROM pending_tx WHERE txid = ?`, id))
+		`SELECT txid, wallet_id, asset, network, raw, draft, broadcast_accepted, replaces_txid, created_at FROM pending_tx WHERE txid = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.PendingTx{}, notFound(fmt.Sprintf("pending tx %q", string(id)))
 	}
@@ -68,7 +71,7 @@ func (r pendingRepo) Get(ctx context.Context, id domain.TxID) (ports.PendingTx, 
 // List возвращает неподтверждённые транзакции от старых к новым.
 func (r pendingRepo) List(ctx context.Context) ([]ports.PendingTx, error) {
 	rows, err := r.s.reader().QueryContext(ctx,
-		`SELECT txid, wallet_id, asset, network, raw, created_at FROM pending_tx ORDER BY created_at, txid`)
+		`SELECT txid, wallet_id, asset, network, raw, draft, broadcast_accepted, replaces_txid, created_at FROM pending_tx ORDER BY created_at, txid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list pending txs: %w", err)
 	}
