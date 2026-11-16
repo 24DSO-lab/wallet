@@ -64,7 +64,7 @@ func TestMigrateFromScratch(t *testing.T) {
 	}
 	// Таблица swap остаётся на холде; миграция 4 расширяет только pending_tx.
 	if tableExists(t, d.w, "swap") {
-		t.Error("swap table must not exist while stage 4 is on hold")
+		t.Error("swap table must not exist while swap remains on hold")
 	}
 }
 
