@@ -330,6 +330,9 @@ func (a *App) CancelCreateWallet() {
 }
 
 func randomChallengePositions(words int) ([]int, error) {
+	if words < 3 {
+		return nil, domain.NewError(domain.CodeInvalidInput, errors.New("challenge requires at least three mnemonic words"))
+	}
 	seen := make(map[int]struct{}, 3)
 	positions := make([]int, 0, 3)
 	for len(positions) < 3 {
