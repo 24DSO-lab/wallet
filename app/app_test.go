@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/service"
 )
 
 func TestRandomChallengePositions(t *testing.T) {
@@ -56,6 +57,7 @@ func TestRequireUnlockedDoesNotExtendIdleTimeout(t *testing.T) {
 
 func TestKeepAliveStartsIdleTimer(t *testing.T) {
 	a := New()
+	a.svc = &service.Service{}
 	a.locked = false
 
 	if err := a.KeepAlive(); err != nil {
