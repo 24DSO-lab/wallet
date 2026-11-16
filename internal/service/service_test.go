@@ -192,7 +192,7 @@ func TestReconcilePendingMarksMempoolTransactionAccepted(t *testing.T) {
 		Network:  domain.NetworkBitcoin,
 		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
 		Signed:   ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{1, 3, 5}},
-		Status:   ports.TxStatus{State: domain.TxPending},
+		Status:   ports.TxStatus{State: domain.TxPending, Known: true},
 		Failures: map[testkit.ChainOperation]error{
 			testkit.ChainBroadcast: errors.New("connection closed after submit"),
 		},
