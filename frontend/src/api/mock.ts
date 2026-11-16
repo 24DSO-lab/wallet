@@ -44,7 +44,6 @@ export function mockApi(): Api {
     async unlock(password) {
       await wait()
       if (typeof password !== 'string' || password.length === 0) {
-        globalThis.console.error('Mock unlock rejected credential:', typeof password, password && typeof password === 'object' ? Object.keys(password as object) : 'empty')
         throw Error('INVALID_PASSWORD')
       }
       locked = false
