@@ -596,7 +596,7 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 		return false, err
 	}
 	if err := a.requireUnlocked(); err != nil {
-		return err
+		return false, err
 	}
 	if a.restoreBackup == nil {
 		return false, errors.New("restore_not_configured")
@@ -624,7 +624,7 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 		return false, errors.New("restore_failed")
 	}
 	if err := restored.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
-		return safeError(err)
+		return false, safeError(err)
 	}
 	a.mu.Lock()
 	a.locked = false
