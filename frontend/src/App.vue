@@ -54,7 +54,7 @@ async function createWallet(){
   error.value=''
   if(mode.value==='create')return
   if(!name.value.trim()||password.value.length<10){error.value='Название обязательно, пароль — не менее 10 символов.';return}
-  if(![12,24].includes(seed.value.trim().split(/\\s+/).length)){error.value='Введите seed из 12 или 24 слов';return}
+  if(![12,24].includes(seed.value.trim().split(/\s+/).length)){error.value='Введите seed из 12 или 24 слов';return}
   busy.value=true
   try{
     const wallet=await api.importWallet(name.value.trim(),seed.value.trim(),password.value,passphrase.value)
