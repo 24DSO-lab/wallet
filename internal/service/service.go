@@ -66,13 +66,15 @@ func WithIDGenerator(generate func() (string, error)) Option {
 // Service is safe for concurrent use. Wallet creation/import is serialized so
 // concurrent calls cannot exceed the configured wallet limit.
 type Service struct {
-	store     ports.Store
-	keystore  ports.Keystore
-	chains    map[domain.Network]ports.ChainAdapter
-	log       *slog.Logger
-	now       func() time.Time
-	newID     func() (string, error)
-	lifecycle sync.Mutex
+	store       ports.Store
+	keystore    ports.Keystore
+	chains      map[domain.Network]ports.ChainAdapter
+	log         *slog.Logger
+	now         func() time.Time
+	newID       func() (string, error)
+	lifecycle   sync.Mutex
+	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
+	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
 	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
 	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
 }
@@ -510,6 +512,8 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	if err := intent.Validate(); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -519,6 +523,11 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	}
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
+	// Resolve previously ambiguous sends before deciding whether a new send is safe.
+	_, _ = s.ReconcilePending(ctx)
+	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
+		return ports.Prepared{}, err
+	}
 	// Resolve previously ambiguous sends before deciding whether a new send is safe.
 	_, _ = s.ReconcilePending(ctx)
 	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
@@ -567,6 +576,8 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
 	if walletID == "" || intent.Wallet.ID != walletID {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("wallet id does not match send intent"))
@@ -579,6 +590,9 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	info, ok := intent.Asset.Info()
 	if !ok || !intent.Asset.IsWalletAsset() {
 		return "", domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
+		return "", err
 	}
 	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
 		return "", err
@@ -630,8 +644,13 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 		// locally computed ID so the Wails facade can consume the draft and the
 		// UI can reconcile status instead of signing/broadcasting it again.
 		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
+		// The signed transaction is already durable in pending_tx. Return its
+		// locally computed ID so the Wails facade can consume the draft and the
+		// UI can reconcile status instead of signing/broadcasting it again.
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
 	}
 	if txid != signed.TxID {
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 	}
 	pending.BroadcastAccepted = true
@@ -654,6 +673,8 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // remaining records from being checked. The signed Raw payload is never
 // logged or returned.
 func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)
@@ -689,9 +710,13 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 		if replaced {
 			err := s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
 				history, err := tx.Transactions().Get(txctx, item.WalletID, item.Asset, item.TxID)
-				if err != nil { return err }
+				if err != nil {
+					return err
+				}
 				history.Status = domain.TxReplaced
-				if err := tx.Transactions().Upsert(txctx, []domain.Tx{history}); err != nil { return err }
+				if err := tx.Transactions().Upsert(txctx, []domain.Tx{history}); err != nil {
+					return err
+				}
 				return tx.PendingTxs().Delete(txctx, item.TxID)
 			})
 			if err != nil {

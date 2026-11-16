@@ -120,8 +120,18 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(100)}
 	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{9}}
 	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
+	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
 	if err == nil {
 		t.Fatal("expected broadcast error")
+	}
+	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
+	}
+	if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("PrepareSend after ambiguous broadcast = %v, want duplicate_send", err)
+	}
+	if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("second ConfirmSend after ambiguous broadcast = %v, want duplicate_send", err)
 	}
 	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
 		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
@@ -147,7 +157,6 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 		t.Fatalf("unexpected pending history record: %+v", history[0])
 	}
 }
-
 
 func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
 	const txid domain.TxID = "confirmed-after-ambiguous-broadcast"
@@ -186,7 +195,6 @@ func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
 		t.Fatalf("history was not reconciled: %+v, %v", history, err)
 	}
 }
-
 
 func TestReconcilePendingMarksMempoolTransactionAccepted(t *testing.T) {
 	const txid domain.TxID = "seen-in-mempool"
