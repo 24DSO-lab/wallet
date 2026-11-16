@@ -64,21 +64,29 @@ type QuoteDTO struct {
 }
 
 func walletDTO(w domain.Wallet, records map[domain.Asset]ports.BalanceRecord) WalletDTO {
-	out := WalletDTO{ID: w.ID, Name: w.Name, Balances: make([]BalanceDTO, 0, len(domain.WalletAssets()))}
-	for _, asset := range domain.WalletAssets() {
-		record, ok := records[asset]
-		if !ok {
-			continue
-		}
+	assets := append(domain.WalletAssets(), domain.TRX)
+	out := WalletDTO{ID: w.ID, Name: w.Name, Balances: make([]BalanceDTO, 0, len(assets))}
+	for _, asset := range assets {
 		info, ok := asset.Info()
 		if !ok {
 			continue
 		}
-		b := BalanceDTO{Asset: string(asset), Network: string(info.Network), Amount: record.Balance.Confirmed.String(), PendingAmount: record.Balance.Pending.String(), Decimals: info.Decimals, UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+		record, exists := records[asset]
+		b := BalanceDTO{
+			Asset: string(asset), Network: string(info.Network),
+			Amount: "0", PendingAmount: "0", Decimals: info.Decimals,
+		}
+		if exists {
+			b.Amount = record.Balance.Confirmed.String()
+			b.PendingAmount = record.Balance.Pending.String()
+			b.UpdatedAt = record.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		}
 		if info.FeeAsset != asset {
-			if fee, exists := records[info.FeeAsset]; exists {
-				b.FeeAsset = string(info.FeeAsset)
+			b.FeeAsset = string(info.FeeAsset)
+			if fee, found := records[info.FeeAsset]; found {
 				b.FeeBalance = fee.Balance.Confirmed.String()
+			} else {
+				b.FeeBalance = "0"
 			}
 		}
 		out.Balances = append(out.Balances, b)
