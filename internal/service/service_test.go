@@ -120,18 +120,8 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(100)}
 	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{9}}
 	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
-	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
 	if err == nil {
 		t.Fatal("expected broadcast error")
-	}
-	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
-		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
-	}
-	if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
-		t.Fatalf("PrepareSend after ambiguous broadcast = %v, want duplicate_send", err)
-	}
-	if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
-		t.Fatalf("second ConfirmSend after ambiguous broadcast = %v, want duplicate_send", err)
 	}
 	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
 		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
