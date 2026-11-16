@@ -8,12 +8,10 @@ const bal = (asset: Asset, amount: string, updatedAt = stamp()): Balance => ({
   asset, amount, decimals: decimals(asset), network: network(asset), updatedAt,
 })
 
-// Convert user-facing decimal strings to integer base units without floating point.
-const toBaseUnits = (value: string, asset: Asset): string => {
-  const [whole, fraction = ''] = value.split('.')
-  const places = decimals(asset)
-  if (fraction.length > places) throw Error('INVALID_SEND')
-  return BigInt(`${whole}${fraction.padEnd(places, '0')}`).toString()
+// Match Go's asset-specific decimal precision without floating-point arithmetic.
+const validatePrecision = (value: string, asset: Asset): void => {
+  const fraction = value.split('.')[1] ?? ''
+  if (fraction.length > decimals(asset)) throw Error('INVALID_SEND')
 }
 
 export function mockApi(): Api {
@@ -118,7 +116,7 @@ export function mockApi(): Api {
       guard()
       await wait()
       if (!to.trim() || !/^\d+(\.\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
-      toBaseUnits(amount, asset) // Validate precision at prepare time, as the Go adapter does.
+      validatePrecision(amount, asset)
       const quote: Quote = {
         draftId: crypto.randomUUID(),
         asset,
@@ -147,8 +145,8 @@ export function mockApi(): Api {
         id: crypto.randomUUID(),
         asset: quote.asset,
         direction: 'out',
-        amount: toBaseUnits(quote.amount, quote.asset),
-        fee: toBaseUnits(quote.fee, quote.feeAsset as Asset),
+        amount: quote.amount,
+        fee: quote.fee,
         status: 'pending',
         timestamp: stamp(),
         address: quote.recipient,
