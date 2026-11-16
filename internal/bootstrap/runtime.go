@@ -78,6 +78,9 @@ func New() (*Runtime, error) {
 }
 
 func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRuntime, error) {
+	if profile == domain.ProfileMain && !config.MainnetEnabled {
+		return profileRuntime{}, errors.New("mainnet_disabled")
+	}
 	cfg, err := config.New(profile, r.baseDir, r.keys)
 	if err != nil {
 		return profileRuntime{}, err
