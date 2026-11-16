@@ -22,6 +22,11 @@ type CreateWalletDTO struct {
 	Wallet   WalletDTO `json:"wallet"`
 	Mnemonic string    `json:"mnemonic"`
 }
+
+type PrepareWalletDTO struct {
+	Mnemonic           string `json:"mnemonic"`
+	ChallengePositions []int  `json:"challengePositions"`
+}
 type BalanceDTO struct {
 	Asset      string `json:"asset"`
 	Network    string `json:"network"`
