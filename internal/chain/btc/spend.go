@@ -430,9 +430,18 @@ func readCompactSize(b []byte)(uint64,int,error){if len(b)<1{return 0,0,ErrInval
 // NewAdapter constructs the complete Bitcoin ChainAdapter using the shared
 // Esplora provider and the repository's public-only BIP32 implementation.
 func NewAdapter(api *Esplora) (*SpendEngine, error) {
+	return NewAdapterWithIncrementalRelayFeeRate(api, DefaultIncrementalRelayFeeRate)
+}
+
+// NewAdapterWithIncrementalRelayFeeRate constructs the Bitcoin adapter with
+// the incremental relay fee policy of the target node, expressed in sat/vB.
+func NewAdapterWithIncrementalRelayFeeRate(api *Esplora, rate uint64) (*SpendEngine, error) {
 	scanner, err := NewHDScanner(api)
 	if err != nil { return nil, err }
-	return NewSpendEngine(api, scanner, HDAddressDeriver{})
+	engine, err := NewSpendEngine(api, scanner, HDAddressDeriver{})
+	if err != nil { return nil, err }
+	if err := engine.SetIncrementalRelayFeeRate(rate); err != nil { return nil, err }
+	return engine, nil
 }
 
 var _ ports.ChainAdapter = (*SpendEngine)(nil)

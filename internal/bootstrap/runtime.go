@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/24DSO-lab/wallet/app"
@@ -96,7 +97,15 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 	if err != nil {
 		return profileRuntime{}, err
 	}
-	btcAdapter, err := btc.NewAdapter(btcAPI)
+	incrementalRelayFeeRate := btc.DefaultIncrementalRelayFeeRate
+	if raw := os.Getenv("BTC_INCREMENTAL_RELAY_FEE_RATE"); raw != "" {
+		parsed, parseErr := strconv.ParseUint(raw, 10, 64)
+		if parseErr != nil {
+			return profileRuntime{}, fmt.Errorf("parse BTC_INCREMENTAL_RELAY_FEE_RATE: %w", parseErr)
+		}
+		incrementalRelayFeeRate = parsed
+	}
+	btcAdapter, err := btc.NewAdapterWithIncrementalRelayFeeRate(btcAPI, incrementalRelayFeeRate)
 	if err != nil {
 		return profileRuntime{}, err
 	}
