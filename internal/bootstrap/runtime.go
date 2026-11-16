@@ -24,8 +24,8 @@ import (
 	"github.com/24DSO-lab/wallet/internal/logging"
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/provider"
-	"github.com/24DSO-lab/wallet/internal/service"
 	"github.com/24DSO-lab/wallet/internal/secret"
+	"github.com/24DSO-lab/wallet/internal/service"
 	"github.com/24DSO-lab/wallet/internal/store"
 )
 
