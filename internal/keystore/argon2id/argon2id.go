@@ -164,6 +164,7 @@ func fillSegment(mem []block, pass, slice, lane, lanes, laneLen, segLen, memBloc
 		} else {
 			rnd = mem[prev][0]
 		}
+		//nolint:gosec // Shifting right 32 bits leaves a value representable by uint32.
 		refLane := uint32(rnd>>32) % lanes
 		if pass == 0 && slice == 0 {
 			refLane = lane
