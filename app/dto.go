@@ -46,6 +46,7 @@ type TxDTO struct {
 	FeeAsset  string `json:"feeAsset"`
 	ExplorerURL string `json:"explorerUrl,omitempty"`
 	Status    string `json:"status"`
+	CanReplace bool `json:"canReplace"`
 	Timestamp string `json:"timestamp"`
 	Address   string `json:"address"`
 }
@@ -59,6 +60,7 @@ type QuoteDTO struct {
 	FeeAsset  string   `json:"feeAsset"`
 	Total     string   `json:"total"`
 	Warnings  []string `json:"warnings"`
+	ReplacesTxID string `json:"replacesTxId,omitempty"`
 }
 
 func walletDTO(w domain.Wallet, records map[domain.Asset]ports.BalanceRecord) WalletDTO {

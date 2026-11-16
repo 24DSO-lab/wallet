@@ -45,6 +45,22 @@ type ChainAdapter interface {
 	Status(ctx context.Context, id domain.TxID) (TxStatus, error)
 }
 
+// Replacement describes a verified Bitcoin fee-bump draft for an existing
+// accepted but unconfirmed transaction.
+type Replacement struct {
+	ReplacesTxID domain.TxID
+	Intent       domain.SendIntent
+	Prepared     Prepared
+}
+
+// RBFAdapter is an optional capability implemented only by chains that
+// support Replace-By-Fee. It must validate the original pending transaction
+// and ensure the replacement preserves its recipient and inputs.
+type RBFAdapter interface {
+	PrepareReplacement(ctx context.Context, wallet domain.PublicWallet, original PendingTx) (Replacement, error)
+	VerifyReplacement(ctx context.Context, wallet domain.PublicWallet, original PendingTx, replacement Replacement) error
+}
+
 // Snapshot это результат Refresh для одного актива.
 type Snapshot struct {
 	Asset     domain.Asset

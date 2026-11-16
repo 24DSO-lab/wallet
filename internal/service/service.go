@@ -676,6 +676,31 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 			failures = append(failures, fmt.Errorf("pending transaction %q has inconsistent asset/network", item.TxID))
 			continue
 		}
+
+		// If a replacement is already known to have reached the mempool, the
+		// predecessor is no longer an independently pending transaction.
+		replaced := false
+		for _, child := range pending {
+			if child.ReplacesTxID == item.TxID && child.BroadcastAccepted {
+				replaced = true
+				break
+			}
+		}
+		if replaced {
+			err := s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
+				history, err := tx.Transactions().Get(txctx, item.WalletID, item.Asset, item.TxID)
+				if err != nil { return err }
+				history.Status = domain.TxReplaced
+				if err := tx.Transactions().Upsert(txctx, []domain.Tx{history}); err != nil { return err }
+				return tx.PendingTxs().Delete(txctx, item.TxID)
+			})
+			if err != nil {
+				failures = append(failures, fmt.Errorf("retire replaced transaction %q: %w", item.TxID, err))
+			} else {
+				reconciled++
+			}
+			continue
+		}
 		chain := s.chains[item.Network]
 		if chain == nil {
 			// A profile may intentionally omit an adapter (for example while

@@ -61,3 +61,13 @@ confirmed state and confirmation depth.
 The adapter never receives seed or private keys. Signing requests are passed
 to `ports.Keystore.Sign`, which derives the private key and checks the
 expected address before signing. RBF is enabled from the first version.
+
+
+## BIP125 incremental relay fee policy
+
+The RBF adapter uses an explicit incremental relay fee rate in sat/vB. The
+default is Bitcoin Core's default policy of 1 sat/vB; this is not guaranteed
+for every Esplora backend or node. Set `BTC_INCREMENTAL_RELAY_FEE_RATE` to
+the actual target node's `incrementalrelayfee` policy when it differs. The
+value is validated at startup and the replacement verifier independently
+checks the absolute-fee increment against a conservative replacement vsize.
