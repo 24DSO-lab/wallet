@@ -15,14 +15,14 @@ test('receives, sends and shows a transaction in history on the mock profile', a
   await page.getByLabel('Пароль').fill('test-password')
   await page.getByRole('button', { name: 'Разблокировать' }).click()
 
-  // Receive: the first asset card is BTC and must expose a testnet address.
-  await page.getByRole('button', { name: 'Получить', exact: true }).first().click()
+  // Open the wallet, then receive BTC using its explicit asset action.
+  await page.getByRole('button', { name: 'Открыть →' }).click()
+  await page.getByRole('button', { name: 'Получить BTC' }).click()
   await expect(page.getByRole('heading', { name: 'Получить BTC' })).toBeVisible()
   await expect(page.getByText('tb1qtestaddress000000000000000000000000000')).toBeVisible()
   await page.getByRole('button', { name: 'Назад' }).click()
 
-  // Open the wallet and prepare a BTC transfer.
-  await page.getByRole('button', { name: 'Открыть →' }).click()
+  // Prepare a BTC transfer from the wallet screen.
   await page.getByRole('button', { name: 'Отправить' }).click()
   await page.locator('select').first().selectOption('BTC')
   await page.locator('input').nth(0).fill('tb1qrecipient0000000000000000000000000000000')
