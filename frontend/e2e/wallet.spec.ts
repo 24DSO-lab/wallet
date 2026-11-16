@@ -49,5 +49,6 @@ test('receives, sends and shows a transaction in history on the mock profile', a
 
   await expect(page.getByRole('heading', { name: 'История операций' })).toBeVisible()
   await expect(page.getByText('BTC · Исходящая')).toBeVisible()
-  await expect(page.getByText('pending')).toBeVisible()
+  await expect(page.getByText('0.001 · pending')).toBeVisible()
+  await expect(page.getByText('tb1qrecipient0000000000000000000000000000000')).toBeVisible()
 })
