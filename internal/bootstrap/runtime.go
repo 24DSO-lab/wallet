@@ -57,7 +57,7 @@ func New() (*Runtime, error) {
 		config.ProviderTron:     os.Getenv("TRONGRID_API_KEY"),
 	}
 	keys := config.NewAPIKeys(rawKeys)
-	redactor := logging.NewRedactor(keys.Values())
+	redactor := logging.NewRedactor(keys.Values()...)
 	logger := logging.New(os.Stderr, slog.LevelInfo, redactor)
 	rt := &Runtime{
 		baseDir: baseDir, keys: keys, logger: logger,
