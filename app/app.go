@@ -669,6 +669,9 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	if path == "" {
 		return false, nil
 	}
+	if err := a.requireUnlocked(); err != nil {
+		return false, err
+	}
 
 	a.Lock()
 	restored, restoreErr := a.restoreBackup(a.context(), path)
@@ -718,9 +721,13 @@ func (a *App) CreateBackup(password string) (bool, error) {
 	if destination == "" {
 		return false, nil
 	}
+	if err := a.requireUnlocked(); err != nil {
+		return false, err
+	}
 	if err := create(a.context(), destination); err != nil {
 		return false, safeError(err)
 	}
+	a.touch()
 	return true, nil
 }
 
