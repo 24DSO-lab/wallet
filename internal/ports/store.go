@@ -72,8 +72,8 @@ type SettingRepo interface {
 	List(ctx context.Context) (map[string]string, error) // без чувствительных ключей
 }
 
-// PendingTx это подписанная транзакция, сохранённая до подтверждения приёма
-// сетью (A6). Это не секрет.
+// PendingTx хранит подписанную транзакцию и исходный unsigned draft до
+// подтверждения в блоке. Raw и Draft не содержат приватных ключей.
 type PendingTx struct {
 	TxID              domain.TxID
 	WalletID          string
