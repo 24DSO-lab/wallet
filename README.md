@@ -22,8 +22,10 @@ npm run dev
 The standalone Vite UI uses the mock adapter for UI work. Wails development automatically loads `frontend/.env.wails` and binds the real Go API:
 
 ```powershell
-wails dev
+node scripts/wails-dev.mjs
 ```
+
+The launcher adds only `wails.localhost` to Wails' development IPC host allowlist. This is required by Wails 2.17+'s dev-server host validation; it does not disable the validation or change the production CSP.
 
 Build the Windows desktop application:
 
