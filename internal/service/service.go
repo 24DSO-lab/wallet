@@ -241,6 +241,85 @@ func (s *Service) removeKeystoreFile(ctx context.Context, id string, password se
 	return s.keystore.Delete(context.WithoutCancel(ctx), id, ports.Secrets{Password: cleanupPassword})
 }
 
+// DeleteWallet removes a wallet only after the caller confirms its exact name
+// and proves knowledge of the keystore password. The encrypted keystore is
+// deleted first; if the database deletion fails, the mnemonic is re-encrypted
+// under the same wallet ID before the error is returned. The mnemonic and all
+// temporary secret copies are wiped on every path.
+func (s *Service) DeleteWallet(ctx context.Context, id, confirmedName string, sec ports.Secrets) error {
+	defer wipeSecrets(sec)
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(confirmedName) == "" {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("wallet id and confirmation name are required"))
+	}
+	wallet, err := s.store.Wallets().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if confirmedName != wallet.Name {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("wallet name confirmation does not match"))
+	}
+
+	revealSecrets := cloneSecrets(sec)
+	defer wipeSecrets(revealSecrets)
+	mnemonic, err := s.keystore.RevealSeed(ctx, wallet.KeystoreID, revealSecrets)
+	if err != nil {
+		return err
+	}
+	defer mnemonic.Wipe()
+
+	deleteSecrets := cloneSecrets(sec)
+	defer wipeSecrets(deleteSecrets)
+	if deleteErr := s.keystore.Delete(ctx, wallet.KeystoreID, deleteSecrets); deleteErr != nil {
+		// Delete may report a directory-sync error after unlinking the file.
+		// Check with a non-cancelled context before deciding whether to restore.
+		checkSecrets := cloneSecrets(sec)
+		checkMnemonic, checkErr := s.keystore.RevealSeed(context.WithoutCancel(ctx), wallet.KeystoreID, checkSecrets)
+		wipeSecrets(checkSecrets)
+		checkMnemonic.Wipe()
+		if checkErr == nil {
+			return deleteErr
+		}
+		if restoreErr := s.restoreKeystore(ctx, wallet, mnemonic, sec); restoreErr != nil {
+			s.log.Error("wallet deletion rollback failed", "wallet_id", id, "error", restoreErr)
+			return errors.Join(deleteErr, fmt.Errorf("restore keystore after failed delete: %w", restoreErr))
+		}
+		return deleteErr
+	}
+
+	if err := s.store.Wallets().Delete(ctx, id); err != nil {
+		// The database is the public source of truth. Restore the encrypted
+		// keystore if its corresponding wallet row could not be removed.
+		if restoreErr := s.restoreKeystore(ctx, wallet, mnemonic, sec); restoreErr != nil {
+			s.log.Error("wallet deletion rollback failed", "wallet_id", id, "error", restoreErr)
+			return errors.Join(err, fmt.Errorf("restore keystore after failed wallet deletion: %w", restoreErr))
+		}
+		return err
+	}
+	s.log.Info("wallet deleted", "wallet_id", id)
+	return nil
+}
+
+// restoreKeystore re-encrypts a previously revealed mnemonic after a partial
+// wallet deletion. It uses an uncancelled context because leaving a wallet row
+// without its keystore is worse than completing this local rollback.
+func (s *Service) restoreKeystore(ctx context.Context, wallet domain.Wallet, mnemonic secret.Bytes, sec ports.Secrets) error {
+	restoreSecrets := cloneSecrets(sec)
+	defer wipeSecrets(restoreSecrets)
+	keys, err := s.keystore.Save(context.WithoutCancel(ctx), wallet.KeystoreID, mnemonic, restoreSecrets)
+	if err != nil {
+		return err
+	}
+	if keys.BTCXpub != wallet.BTCXpub || keys.ETHAddress != wallet.ETHAddress || keys.TronAddress != wallet.TronAddress {
+		return errors.New("restored keystore public keys do not match the wallet record")
+	}
+	return nil
+}
+
+// cloneSecrets creates short-lived independent buffers for a keystore call.
+func cloneSecrets(sec ports.Secrets) ports.Secrets {
+	return ports.Secrets{Password: sec.Password.Clone(), Passphrase: sec.Passphrase.Clone()}
+}
+
 // RenameWallet changes only the public display name.
 func (s *Service) RenameWallet(ctx context.Context, id, name string) error {
 	name = strings.TrimSpace(name)
@@ -472,8 +551,21 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	if signed.Network != info.Network || signed.TxID == "" || len(signed.Raw) == 0 {
 		return "", domain.NewError(domain.CodeVerificationFailed, errors.New("adapter returned invalid signed transaction"))
 	}
-	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), CreatedAt: s.now().UTC()}
-	if err := s.store.PendingTxs().Put(ctx, pending); err != nil {
+	now := s.now().UTC()
+	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), CreatedAt: now}
+	history := domain.Tx{
+		WalletID: walletID, Asset: intent.Asset, TxID: signed.TxID, Direction: domain.DirectionOut,
+		Amount: intent.Amount, Fee: prepared.Fee, FeeAsset: prepared.FeeAsset, Status: domain.TxPending,
+		Time: now, Counterparty: intent.To,
+	}
+	// Persist the recoverable signed payload and the visible pending history in
+	// one database transaction before the non-idempotent network request.
+	if err := s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
+		if err := tx.PendingTxs().Put(txctx, pending); err != nil {
+			return err
+		}
+		return tx.Transactions().Upsert(txctx, []domain.Tx{history})
+	}); err != nil {
 		return "", err
 	}
 	txid, err := chain.Broadcast(ctx, signed)

@@ -130,6 +130,44 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	if pending.WalletID != wallet.ID || pending.Asset != domain.BTC || string(pending.Raw) != string([]byte{1, 2, 3}) {
 		t.Fatalf("unexpected pending transaction: %+v", pending)
 	}
+	history, err := st.Transactions().List(context.Background(), wallet.ID, domain.BTC)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("pending send was not added to history: rows=%+v err=%v", history, err)
+	}
+	if history[0].TxID != txid || history[0].Status != domain.TxPending || history[0].Direction != domain.DirectionOut || history[0].Counterparty != intent.To {
+		t.Fatalf("unexpected pending history record: %+v", history[0])
+	}
+}
+
+func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testing.T) {
+	const txid domain.TxID = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network: domain.NetworkBitcoin,
+		Signed:  ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{4, 5, 6}},
+		TxID:    txid,
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(250)}
+	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{9}, Fee: domain.AmountFromUint64(3), FeeAsset: domain.BTC}
+
+	got, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != txid {
+		t.Fatalf("txid = %q, want %q", got, txid)
+	}
+	if _, err := st.PendingTxs().Get(context.Background(), txid); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("recovery payload was not removed after broadcast acceptance: %v", err)
+	}
+	history, err := st.Transactions().List(context.Background(), wallet.ID, domain.BTC)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history rows = %+v, err = %v", history, err)
+	}
+	if history[0].Status != domain.TxPending || !history[0].Amount.Equal(intent.Amount) || !history[0].Fee.Equal(prepared.Fee) {
+		t.Fatalf("unexpected outgoing history record: %+v", history[0])
+	}
 }
 
 func TestRefreshWalletPersistsSnapshotAtomically(t *testing.T) {
@@ -165,4 +203,97 @@ func TestRefreshWalletPersistsSnapshotAtomically(t *testing.T) {
 	if err != nil || len(utxos) != 1 {
 		t.Fatalf("utxos = %+v, err = %v", utxos, err)
 	}
+}
+
+func TestDeleteWalletRequiresNameAndPasswordConfirmation(t *testing.T) {
+	svc, st := testService(t)
+	wallet := createTestWallet(t, svc)
+
+	if err := svc.DeleteWallet(context.Background(), wallet.ID, "not the wallet name", testSecrets()); err == nil {
+		t.Fatal("expected name confirmation error")
+	}
+	if _, err := st.Wallets().Get(context.Background(), wallet.ID); err != nil {
+		t.Fatalf("wallet was removed after wrong name: %v", err)
+	}
+
+	wrongPassword := ports.Secrets{Password: secret.FromString("incorrect password")}
+	if err := svc.DeleteWallet(context.Background(), wallet.ID, wallet.Name, wrongPassword); err == nil {
+		t.Fatal("expected password error")
+	}
+	if _, err := st.Wallets().Get(context.Background(), wallet.ID); err != nil {
+		t.Fatalf("wallet was removed after wrong password: %v", err)
+	}
+}
+
+func TestDeleteWalletRemovesWalletAndKeystore(t *testing.T) {
+	st := testkit.NewMemoryStore()
+	ks := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
+		Password: []byte("correct horse battery staple"),
+		PublicKeys: ports.PublicKeys{
+			BTCXpub: "tpub-test", ETHAddress: "0x1111111111111111111111111111111111111111",
+			TronAddress: "T1111111111111111111111111111111111",
+		},
+	})
+	svc, err := service.New(st, ks, nil, service.WithIDGenerator(func() (string, error) { return "wallet-delete", nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallet := createTestWallet(t, svc)
+	if err := svc.DeleteWallet(context.Background(), wallet.ID, wallet.Name, testSecrets()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Wallets().Get(context.Background(), wallet.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("wallet still exists or unexpected error: %v", err)
+	}
+	password := secret.FromString("correct horse battery staple")
+	_, revealErr := ks.RevealSeed(context.Background(), wallet.KeystoreID, ports.Secrets{Password: password})
+	password.Wipe()
+	if revealErr == nil {
+		t.Fatal("keystore file still exists after wallet deletion")
+	}
+}
+
+type walletDeleteFailStore struct {
+	ports.Store
+}
+
+func (s walletDeleteFailStore) Wallets() ports.WalletRepo {
+	return walletDeleteFailRepo{WalletRepo: s.Store.Wallets()}
+}
+
+type walletDeleteFailRepo struct {
+	ports.WalletRepo
+}
+
+func (walletDeleteFailRepo) Delete(context.Context, string) error {
+	return errors.New("simulated database delete failure")
+}
+
+func TestDeleteWalletRestoresKeystoreWhenDatabaseDeleteFails(t *testing.T) {
+	base := testkit.NewMemoryStore()
+	ks := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
+		Password: []byte("correct horse battery staple"),
+		PublicKeys: ports.PublicKeys{
+			BTCXpub: "tpub-test", ETHAddress: "0x1111111111111111111111111111111111111111",
+			TronAddress: "T1111111111111111111111111111111111",
+		},
+	})
+	svc, err := service.New(walletDeleteFailStore{Store: base}, ks, nil, service.WithIDGenerator(func() (string, error) { return "wallet-rollback", nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallet := createTestWallet(t, svc)
+	if err := svc.DeleteWallet(context.Background(), wallet.ID, wallet.Name, testSecrets()); err == nil {
+		t.Fatal("expected database delete failure")
+	}
+	if _, err := base.Wallets().Get(context.Background(), wallet.ID); err != nil {
+		t.Fatalf("wallet record was removed: %v", err)
+	}
+	password := secret.FromString("correct horse battery staple")
+	seed, err := ks.RevealSeed(context.Background(), wallet.KeystoreID, ports.Secrets{Password: password})
+	password.Wipe()
+	if err != nil {
+		t.Fatalf("keystore was not restored: %v", err)
+	}
+	seed.Wipe()
 }
