@@ -75,12 +75,15 @@ type SettingRepo interface {
 // PendingTx это подписанная транзакция, сохранённая до подтверждения приёма
 // сетью (A6). Это не секрет.
 type PendingTx struct {
-	TxID      domain.TxID
-	WalletID  string
-	Asset     domain.Asset
-	Network   domain.Network
-	Raw       []byte
-	CreatedAt time.Time
+	TxID              domain.TxID
+	WalletID          string
+	Asset             domain.Asset
+	Network           domain.Network
+	Raw               []byte
+	Draft             []byte // canonical unsigned transaction envelope, used for safe RBF replacement
+	BroadcastAccepted bool   // true only after the provider accepted the transaction or status lookup found it
+	ReplacesTxID      domain.TxID
+	CreatedAt         time.Time
 }
 
 // PendingTxRepo хранит неподтверждённые подписанные транзакции.
