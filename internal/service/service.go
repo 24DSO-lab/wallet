@@ -583,6 +583,80 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	return txid, nil
 }
 
+// ReconcilePending checks every locally retained signed transaction against
+// its network adapter. Confirmed and failed transactions are written to the
+// history and their recovery payloads are deleted in the same database
+// transaction. A still-pending transaction is left untouched.
+//
+// The returned count is the number of transactions moved out of the pending
+// state. Failures for individual records are joined and do not prevent the
+// remaining records from being checked. The signed Raw payload is never
+// logged or returned.
+func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
+	pending, err := s.store.PendingTxs().List(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list pending transactions: %w", err)
+	}
+
+	var (
+		reconciled int
+		failures   []error
+	)
+	for _, item := range pending {
+		if err := ctx.Err(); err != nil {
+			failures = append(failures, contextError(err))
+			break
+		}
+
+		info, ok := item.Asset.Info()
+		if !ok || !item.Asset.IsWalletAsset() || info.Network != item.Network {
+			failures = append(failures, fmt.Errorf("pending transaction %q has inconsistent asset/network", item.TxID))
+			continue
+		}
+		chain := s.chains[item.Network]
+		if chain == nil {
+			failures = append(failures, fmt.Errorf("pending transaction %q: %w", item.TxID, ErrChainMissing))
+			continue
+		}
+
+		status, err := chain.Status(ctx, item.TxID)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("query status for transaction %q: %w", item.TxID, err))
+			continue
+		}
+		if !status.State.Valid() {
+			failures = append(failures, fmt.Errorf("provider returned invalid status %q for transaction %q", status.State, item.TxID))
+			continue
+		}
+		if status.State == domain.TxPending {
+			continue
+		}
+
+		err = s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
+			history, err := tx.Transactions().Get(txctx, item.WalletID, item.Asset, item.TxID)
+			if err != nil {
+				return fmt.Errorf("load transaction history: %w", err)
+			}
+			history.Status = status.State
+			history.BlockHeight = status.BlockHeight
+			if err := tx.Transactions().Upsert(txctx, []domain.Tx{history}); err != nil {
+				return fmt.Errorf("update transaction history: %w", err)
+			}
+			if err := tx.PendingTxs().Delete(txctx, item.TxID); err != nil {
+				return fmt.Errorf("delete pending transaction: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			failures = append(failures, fmt.Errorf("reconcile transaction %q: %w", item.TxID, err))
+			continue
+		}
+		reconciled++
+	}
+
+	return reconciled, errors.Join(failures...)
+}
+
 // Settings returns only non-sensitive settings; the repository enforces the
 // sensitive-key filter.
 func (s *Service) Settings(ctx context.Context) (map[string]string, error) {
