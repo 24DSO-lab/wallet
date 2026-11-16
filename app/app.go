@@ -32,7 +32,7 @@ type Dependencies struct {
 	Service       *service.Service
 	Profile       domain.Profile
 	SwitchProfile func(context.Context, domain.Profile) (*service.Service, error)
-	CreateBackup  func(context.Context) error
+	CreateBackup  func(context.Context, string) error
 	RestoreBackup func(context.Context, string) (*service.Service, error)
 }
 
@@ -52,7 +52,7 @@ type App struct {
 	svc           *service.Service
 	profile       domain.Profile
 	switchProfile func(context.Context, domain.Profile) (*service.Service, error)
-	createBackup  func(context.Context) error
+	createBackup  func(context.Context, string) error
 	restoreBackup func(context.Context, string) (*service.Service, error)
 	locked        bool
 	lockTimeout   time.Duration
@@ -709,7 +709,16 @@ func (a *App) CreateBackup(password string) error {
 	if create == nil {
 		return errors.New("backup_unavailable")
 	}
-	if err := create(a.context()); err != nil {
+	destination, err := wailsruntime.OpenDirectoryDialog(a.context(), wailsruntime.OpenDialogOptions{
+		Title: "Choose wallet backup folder",
+	})
+	if err != nil {
+		return safeError(err)
+	}
+	if destination == "" {
+		return nil
+	}
+	if err := create(a.context(), destination); err != nil {
 		return safeError(err)
 	}
 	return nil
