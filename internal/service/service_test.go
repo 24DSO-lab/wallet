@@ -126,6 +126,12 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
 		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
 	}
+	if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("PrepareSend after ambiguous broadcast = %v, want duplicate_send", err)
+	}
+	if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("second ConfirmSend after ambiguous broadcast = %v, want duplicate_send", err)
+	}
 	pending, err := st.PendingTxs().Get(context.Background(), txid)
 	if err != nil {
 		t.Fatalf("pending transaction was not retained: %v", err)
