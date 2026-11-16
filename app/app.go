@@ -716,12 +716,12 @@ func (a *App) CreateBackup(password string) (bool, error) {
 		return false, safeError(err)
 	}
 	if destination == "" {
-		return nil
+		return false, nil
 	}
 	if err := create(a.context(), destination); err != nil {
 		return false, safeError(err)
 	}
-	return nil
+	return true, nil
 }
 
 func transactionExplorerURL(profile domain.Profile, tx domain.Tx) string {
