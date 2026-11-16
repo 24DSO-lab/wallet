@@ -597,10 +597,13 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	}
 	txid, err := chain.Broadcast(ctx, signed)
 	if err != nil {
-		return "", err
+		// The signed transaction is already durable in pending_tx. Return its
+		// locally computed ID so the Wails facade can consume the draft and the
+		// UI can reconcile status instead of signing/broadcasting it again.
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
 	}
 	if txid != signed.TxID {
-		return "", domain.NewError(domain.CodeProviderBadResponse, errors.New("broadcast transaction id differs from locally finalized id"))
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 	}
 	if err := s.store.PendingTxs().Delete(ctx, signed.TxID); err != nil {
 		s.log.Error("broadcast succeeded but pending record cleanup failed", "wallet_id", walletID, "error", err)
