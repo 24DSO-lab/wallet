@@ -151,7 +151,7 @@ func ethHistory(walletID string, own Address, txs []IndexedTx) []domain.Tx {
 		if _, dup := seen[tx.Hash]; dup {
 			continue
 		}
-		if tx.From != own && !(tx.HasTo && tx.To == own) {
+		if tx.From != own && (!tx.HasTo || tx.To != own) {
 			continue // чужая запись: индексатор не доверенный
 		}
 		if tx.Value.Sign() == 0 && (tx.HasInput || tx.From != own) {

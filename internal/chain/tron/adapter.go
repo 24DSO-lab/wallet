@@ -181,7 +181,7 @@ func (a *Adapter) Prepare(ctx context.Context, in domain.SendIntent) (ports.Prep
 		Expiration: ts + DraftWindow.Milliseconds(), Timestamp: ts, FeeLimit: feeLimit,
 		Owner: owner, Contract: contract, Data: data,
 	}
-	raw.RefBlockBytes = [2]byte{byte(blk.Number >> 8), byte(blk.Number)}
+	raw.RefBlockBytes = [2]byte{byte((blk.Number >> 8) & 0xff), byte(blk.Number & 0xff)}
 	copy(raw.RefBlockHash[:], blk.ID[8:16])
 	draft := raw.Marshal()
 
