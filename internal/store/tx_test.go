@@ -23,7 +23,7 @@ func TestWithTxCommit(t *testing.T) {
 			return fmt.Errorf("read own write: %w", err)
 		}
 		if _, err := d.Wallets().Get(ctx2, "w"); !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("uncommitted write is visible outside: %v", err)
+			return fmt.Errorf("uncommitted write is visible outside: %w", err)
 		}
 		return tx.Settings().Set(ctx2, "k", "v")
 	})

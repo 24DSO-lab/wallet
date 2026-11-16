@@ -32,6 +32,16 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod # версия Go одна на всех, задаётся в go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: matrix.os == 'windows-latest'
+        with:
+          node-version: 24
+      - run: npm ci
+        if: matrix.os == 'windows-latest'
+        working-directory: frontend
+      - run: npm run build
+        if: matrix.os == 'windows-latest'
+        working-directory: frontend
       - run: go mod verify
       - run: go build ${{ matrix.pkgs }}
       - run: go vet ${{ matrix.pkgs }}
@@ -41,6 +51,12 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck -version
           govulncheck ${{ matrix.pkgs }}
+      - name: Install Wails CLI
+        if: matrix.os == 'windows-latest'
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+      - name: Build Windows desktop executable
+        if: matrix.os == 'windows-latest'
+        run: wails build -clean -platform windows/amd64
 
   lint:
     runs-on: ubuntu-latest
