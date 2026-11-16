@@ -54,8 +54,8 @@ describe('mock transfer lifecycle', () => {
     expect(history[0]).toEqual(expect.objectContaining({
       asset: 'BTC',
       direction: 'out',
-      amount: '100000',
-      fee: '1000',
+      amount: '0.001',
+      fee: '0.00001',
       status: 'pending',
       address: 'tb1qactualrecipient',
     }))
