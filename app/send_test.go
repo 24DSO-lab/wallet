@@ -21,14 +21,14 @@ func TestConfirmSendConsumesDraftAfterAmbiguousBroadcast(t *testing.T) {
 	ks := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
 		Password: []byte(password),
 		PublicKeys: ports.PublicKeys{
-			BTCXpub: "tpub-test",
-			ETHAddress: "0x1111111111111111111111111111111111111111",
+			BTCXpub:     "tpub-test",
+			ETHAddress:  "0x1111111111111111111111111111111111111111",
 			TronAddress: "T1111111111111111111111111111111111",
 		},
 	})
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
 		Network: domain.NetworkBitcoin,
-		Signed: ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{1, 2, 3}},
+		Signed:  ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{1, 2, 3}},
 		Failures: map[testkit.ChainOperation]error{
 			testkit.ChainBroadcast: errors.New("network unavailable"),
 		},
@@ -49,24 +49,24 @@ func TestConfirmSendConsumesDraftAfterAmbiguousBroadcast(t *testing.T) {
 
 	intent := domain.SendIntent{
 		Wallet: wallet.PublicWallet,
-		Asset: domain.BTC,
-		To: "bc1qrecipient",
+		Asset:  domain.BTC,
+		To:     "bc1qrecipient",
 		Amount: domain.AmountFromUint64(100),
 	}
 	prepared := ports.Prepared{
-		Network: domain.NetworkBitcoin,
-		Asset: domain.BTC,
-		Draft: []byte{9},
-		Fee: domain.AmountFromUint64(1),
+		Network:  domain.NetworkBitcoin,
+		Asset:    domain.BTC,
+		Draft:    []byte{9},
+		Fee:      domain.AmountFromUint64(1),
 		FeeAsset: domain.BTC,
 	}
 	a := NewWithDependencies(Dependencies{Service: svc, Profile: domain.ProfileTest})
 	a.locked = false
 	a.drafts["draft-1"] = pendingDraft{
 		walletID: wallet.ID,
-		intent: intent,
+		intent:   intent,
 		prepared: prepared,
-		expires: time.Now().Add(time.Minute),
+		expires:  time.Now().Add(time.Minute),
 	}
 
 	if _, err := a.ConfirmSend("draft-1", password, ""); err == nil || err.Error() != string(domain.CodeBroadcastUnknown) {
