@@ -12,6 +12,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/bootstrap"
 )
 
+// The composition root supplies persistent storage, the encrypted keystore and network adapters.
 //go:embed all:frontend/dist
 var assets embed.FS
 
