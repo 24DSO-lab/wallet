@@ -1,12 +1,13 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 )
 
 func TestRandomChallengePositions(t *testing.T) {
 	for _, wordCount := range []int{12, 24} {
-		t.Run(string(rune('0'+wordCount/12)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("words-%d", wordCount), func(t *testing.T) {
 			for iteration := 0; iteration < 100; iteration++ {
 				positions, err := randomChallengePositions(wordCount)
 				if err != nil {
