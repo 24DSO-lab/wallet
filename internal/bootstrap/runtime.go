@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/24DSO-lab/wallet/app"
 	"github.com/24DSO-lab/wallet/internal/backup"
