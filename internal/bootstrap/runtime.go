@@ -238,7 +238,7 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string) (*servi
 	}
 	if current.db != nil {
 		if err := current.db.Close(); err != nil {
-			return nil, fmt.Errorf("close database before restore: %w", err)
+			return current.service, fmt.Errorf("close database before restore: %w", err)
 		}
 	}
 	delete(r.profiles, profile)
