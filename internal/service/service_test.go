@@ -187,7 +187,7 @@ func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
 	}
 }
 
-func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testing.T) {
+func TestConfirmSendSuccessKeepsPendingHistoryAndRecoveryPayloadForRBF(t *testing.T) {
 	const txid domain.TxID = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
 		Network: domain.NetworkBitcoin,
@@ -206,8 +206,12 @@ func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testi
 	if got != txid {
 		t.Fatalf("txid = %q, want %q", got, txid)
 	}
-	if _, err := st.PendingTxs().Get(context.Background(), txid); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("recovery payload was not removed after broadcast acceptance: %v", err)
+	pending, err := st.PendingTxs().Get(context.Background(), txid)
+	if err != nil {
+		t.Fatalf("recovery payload was not retained for RBF: %v", err)
+	}
+	if !pending.BroadcastAccepted || string(pending.Draft) != string(prepared.Draft) || string(pending.Raw) != string([]byte{4, 5, 6}) {
+		t.Fatalf("pending transaction lacks RBF metadata: %+v", pending)
 	}
 	history, err := st.Transactions().List(context.Background(), wallet.ID, domain.BTC)
 	if err != nil || len(history) != 1 {
