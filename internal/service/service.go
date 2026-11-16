@@ -128,6 +128,15 @@ func (s *Service) ListWallets(ctx context.Context) ([]domain.Wallet, error) {
 	return s.store.Wallets().List(ctx)
 }
 
+// NewMnemonic generates an unpersisted BIP-39 phrase for the two-phase
+// desktop creation flow. The caller owns the returned secret and must wipe it.
+func (s *Service) NewMnemonic(words int) (secret.Bytes, error) {
+	if words != 12 && words != 24 {
+		return secret.Bytes{}, domain.NewError(domain.CodeInvalidInput, errors.New("mnemonic length must be 12 or 24 words"))
+	}
+	return s.keystore.NewMnemonic(words)
+}
+
 // CreateWallet creates a wallet and returns its mnemonic exactly once as a
 // secret.Bytes value. The caller owns the returned secret and MUST call Wipe.
 // Password and passphrase are consumed and wiped by this method on every path.
