@@ -308,3 +308,19 @@ func (e *Esplora) GetTipHeight(ctx context.Context) (uint64, error) {
 	}
 	return height, nil
 }
+
+
+// HasSpentOutputs checks Esplora's outspends endpoint. RBF replacement is
+// rejected when any original output has been spent: descendant package fees
+// cannot be safely accounted for from this wallet's available data.
+func (e *Esplora) HasSpentOutputs(ctx context.Context, txid string) (bool, error) {
+	if !validTxID(txid) { return false, ErrInvalidTxID }
+	var out []json.RawMessage
+	if err := e.getJSON(ctx, "/tx/"+txid+"/outspends", &out); err != nil { return false, err }
+	for _, raw := range out {
+		var item struct { Spent bool `json:"spent"`; TxID string `json:"txid"` }
+		if err := json.Unmarshal(raw, &item); err != nil { return false, ErrMalformedResponse }
+		if item.Spent || item.TxID != "" { return true, nil }
+	}
+	return false, nil
+}

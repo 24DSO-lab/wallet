@@ -31,6 +31,11 @@ func (e *SpendEngine) PrepareReplacement(ctx context.Context, wallet domain.Publ
 	if status.State != domain.TxPending {
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: only an unconfirmed transaction can be replaced"))
 	}
+	hasDescendants, err := e.api.HasSpentOutputs(ctx, string(original.TxID))
+	if err != nil { return ports.Replacement{}, err }
+	if hasDescendants {
+		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: transaction has spent outputs; descendant package fees cannot be safely calculated"))
+	}
 
 	oldDraft, err := decodeSpendDraft(original.Draft)
 	if err != nil {
@@ -149,6 +154,9 @@ func (e *SpendEngine) VerifyReplacement(ctx context.Context, wallet domain.Publi
 	if status.State != domain.TxPending {
 		return fail(errors.New("original transaction is no longer pending"))
 	}
+	hasDescendants, err := e.api.HasSpentOutputs(ctx, string(original.TxID))
+	if err != nil { return err }
+	if hasDescendants { return fail(errors.New("original transaction has spent outputs and may have descendants")) }
 	oldDraft, err := decodeSpendDraft(original.Draft)
 	if err != nil {
 		return fail(err)
