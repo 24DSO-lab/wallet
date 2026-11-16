@@ -33,6 +33,7 @@ type pendingDraft struct {
 	intent   domain.SendIntent
 	prepared ports.Prepared
 	expires  time.Time
+	inFlight bool
 }
 
 // App is the Wails facade. It owns only UI session state and prepared drafts;
@@ -375,19 +376,33 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	}
 	a.mu.Lock()
 	draft, ok := a.drafts[draftID]
-	if ok && time.Now().After(draft.expires) {
-		delete(a.drafts, draftID)
+	if ok && (time.Now().After(draft.expires) || draft.inFlight) {
+		if time.Now().After(draft.expires) {
+			delete(a.drafts, draftID)
+		}
 		ok = false
 	} else if ok {
-		// Consume atomically with lookup: a second concurrent confirmation
-		// must not obtain the same draft.
-		delete(a.drafts, draftID)
+		// Single-flight: a second concurrent confirmation must not obtain the
+		// same draft while signing is in progress.
+		draft.inFlight = true
+		a.drafts[draftID] = draft
 	}
 	a.mu.Unlock()
 	if !ok {
-		return "", errors.New("draft_expired")
+		return "", errors.New("draft_expired_or_in_use")
 	}
 	txid, err := a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
+	a.mu.Lock()
+	if err != nil {
+		// Release the draft on failure so the user may retry confirmation.
+		if current, exists := a.drafts[draftID]; exists {
+			current.inFlight = false
+			a.drafts[draftID] = current
+		}
+	} else {
+		delete(a.drafts, draftID)
+	}
+	a.mu.Unlock()
 	if err != nil {
 		return "", safeError(err)
 	}
