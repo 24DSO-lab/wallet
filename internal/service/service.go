@@ -434,14 +434,32 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 	if snapshot.Asset != asset {
 		return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned a snapshot for a different asset"))
 	}
+	if snapshot.FeeAsset != "" && snapshot.FeeAsset != info.FeeAsset {
+		return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an unexpected fee asset"))
+	}
 	for i := range snapshot.Addresses {
 		if snapshot.Addresses[i].WalletID != walletID || snapshot.Addresses[i].Network != info.Network || chain.ValidateAddress(snapshot.Addresses[i].Address) != nil {
 			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid wallet address"))
 		}
 	}
 	for i := range snapshot.History {
-		if snapshot.History[i].WalletID != walletID || snapshot.History[i].Asset != asset {
-			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned history for a different wallet or asset"))
+		tx := snapshot.History[i]
+		if tx.WalletID != walletID || tx.Asset != asset || tx.TxID == "" || !tx.Status.Valid() {
+			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned invalid transaction history"))
+		}
+		switch tx.Direction {
+		case domain.DirectionIn, domain.DirectionOut, domain.DirectionSelf:
+		default:
+			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid transaction direction"))
+		}
+	}
+	if asset != domain.BTC && len(snapshot.UTXOs) != 0 {
+		return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned UTXOs for a non-Bitcoin asset"))
+	}
+	for i := range snapshot.UTXOs {
+		utxo := snapshot.UTXOs[i]
+		if utxo.WalletID != walletID || utxo.TxID == "" || utxo.Amount.IsZero() || chain.ValidateAddress(utxo.Address) != nil {
+			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid Bitcoin UTXO"))
 		}
 	}
 	if snapshot.FetchedAt.IsZero() {

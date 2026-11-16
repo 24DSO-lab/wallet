@@ -63,7 +63,7 @@ func TestSQLiteServiceRestartReconcilesAmbiguousBroadcast(t *testing.T) {
 			WalletID: walletID, Network: domain.NetworkBitcoin, Address: "bc1qintegration",
 			Path: "m/84'/1'/0'/0/0", Chain: domain.ChainReceive,
 		}},
-		UTXOs: []domain.UTXO{{WalletID: walletID, TxID: "funding-tx", Amount: domain.AmountFromUint64(1000)}},
+		UTXOs: []domain.UTXO{{WalletID: walletID, TxID: "funding-tx", Address: "bc1qintegration", Amount: domain.AmountFromUint64(1000)}},
 	})
 
 	newService := func(db ports.Store) *service.Service {

@@ -176,7 +176,7 @@ func TestRefreshWalletPersistsSnapshotAtomically(t *testing.T) {
 		Asset:     domain.BTC,
 		Balance:   domain.Balance{Confirmed: domain.AmountFromUint64(1234), Pending: domain.AmountFromUint64(56)},
 		Addresses: []domain.Address{{WalletID: "wallet-1", Network: domain.NetworkBitcoin, Address: address, Path: "m/84'/1'/0'/0/0", Chain: domain.ChainReceive}},
-		UTXOs:     []domain.UTXO{{WalletID: "wallet-1", TxID: "abcd", Amount: domain.AmountFromUint64(1234)}},
+		UTXOs:     []domain.UTXO{{WalletID: "wallet-1", TxID: "abcd", Address: address, Amount: domain.AmountFromUint64(1234)}},
 	}
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{Network: domain.NetworkBitcoin, Snapshot: snapshot})
 	svc, st := testService(t, chain)
