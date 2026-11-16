@@ -15,12 +15,13 @@ const (
 	TxPending   TxStatus = "pending"
 	TxConfirmed TxStatus = "confirmed"
 	TxFailed    TxStatus = "failed"
+	TxReplaced  TxStatus = "replaced"
 )
 
 // Valid сообщает, что статус известен.
 func (s TxStatus) Valid() bool {
 	switch s {
-	case TxPending, TxConfirmed, TxFailed:
+	case TxPending, TxConfirmed, TxFailed, TxReplaced:
 		return true
 	}
 	return false
