@@ -42,7 +42,9 @@ test('receives, sends and shows a transaction in history on the mock profile', a
   ).toHaveText('0.001 BTC')
   await page.getByRole('button', { name: 'Далее' }).click()
 
-  await page.locator('input[type="password"]').fill('test-password')
+  const confirmation = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Подтверждение' }) })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByLabel('Пароль').fill('test-password')
   await page.getByRole('button', { name: 'Подписать и отправить' }).click()
 
   await expect(page.getByRole('heading', { name: 'История операций' })).toBeVisible()
