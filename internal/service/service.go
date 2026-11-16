@@ -73,6 +73,7 @@ type Service struct {
 	now       func() time.Time
 	newID     func() (string, error)
 	lifecycle sync.Mutex
+	sendMu    sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
 }
 
 // New validates and copies all dependencies. A chain map entry must be keyed
@@ -506,6 +507,8 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 // PrepareSend creates and verifies an unsigned draft. It never asks for a
 // password and never has access to private keys.
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	if err := intent.Validate(); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -515,6 +518,9 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	}
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
+	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
+		return ports.Prepared{}, err
+	}
 	chain := s.chains[info.Network]
 	if chain == nil {
 		return ports.Prepared{}, domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
@@ -535,12 +541,29 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	return prepared, nil
 }
 
+// rejectPendingBroadcast prevents a new send from reusing a nonce or UTXO
+// while a previous signed transaction has an unresolved broadcast outcome.
+func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, network domain.Network) error {
+	pending, err := s.store.PendingTxs().List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, tx := range pending {
+		if tx.WalletID == walletID && tx.Network == network {
+			return domain.NewError(domain.CodeDuplicateSend, errors.New("wallet has an unresolved broadcast on this network"))
+		}
+	}
+	return nil
+}
+
 // ConfirmSend re-verifies the exact draft immediately before signing, then
 // stores the signed transaction before broadcasting. If broadcast has an
 // ambiguous result, the pending record is deliberately retained for later
 // reconciliation; this method never blindly retries a non-idempotent send.
 // Password and passphrase are consumed and wiped by this method.
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
 	if walletID == "" || intent.Wallet.ID != walletID {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("wallet id does not match send intent"))
@@ -553,6 +576,9 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	info, ok := intent.Asset.Info()
 	if !ok || !intent.Asset.IsWalletAsset() {
 		return "", domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
+		return "", err
 	}
 	chain := s.chains[info.Network]
 	if chain == nil {
