@@ -54,7 +54,7 @@ func (g *TronGrid) post(ctx context.Context, path string, body, out any, idem bo
 		Header: http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}},
 	})
 	if err != nil {
-		return err
+		return mapProviderErr(resp, err)
 	}
 	return decode(resp.Body, out)
 }
@@ -63,9 +63,20 @@ func (g *TronGrid) get(ctx context.Context, path string, q url.Values, out any) 
 	resp, err := g.c.Do(ctx, provider.Request{Method: http.MethodGet, Path: path, Query: q,
 		Header: http.Header{"Accept": {"application/json"}}})
 	if err != nil {
-		return err
+		return mapProviderErr(resp, err)
 	}
 	return decode(resp.Body, out)
+}
+
+// mapProviderErr: TronGrid отвечает на превышение частоты не только 429, но и
+// 403 с текстом о лимите (штрафное окно около 30 с) и 503. Такой отказ это
+// ограничение частоты, а не плохой ответ: интерфейс покажет другой код.
+func mapProviderErr(resp *provider.Response, err error) error {
+	if resp != nil && resp.Status == http.StatusForbidden &&
+		strings.Contains(strings.ToLower(string(resp.Body)), "frequency limit") {
+		return domain.NewError(domain.CodeProviderRateLimited, errors.New("tron: provider rate limit (HTTP 403)"))
+	}
+	return err
 }
 
 func decode(body []byte, out any) error {

@@ -7,11 +7,11 @@ import "github.com/24DSO-lab/wallet/internal/domain"
 // считает USDT (ADR, «Правила работы с провайдерами»). Тест
 // TestUSDTContractPinned падает при любой правке.
 //
-// ВАЖНО (перед слиянием): значения ниже занесены без сверки с живыми
-// источниками, потому что в среде разработки этого PR нет доступа к
-// tether.to и nile.tronscan.org. Владелец PR обязан сверить каждое значение
-// и заполнить Source и CheckedOn реальными данными. Пока CheckedOn пуст,
-// TestUSDTSourcesRecorded падает.
+// Сверка адресов выполнена 2026-11-16 (см. USDTSources). Main подтверждён
+// страницей Tether Supported Protocols, tron.network/usdt и Tronscan. Nile:
+// Tether токен в Nile не выпускает, адрес это тестовый USDT, который
+// перечисляют документация BVNK и Turnkey; перед гейтом сверить с краном Nile
+// (токены, которые он выдаёт, должны быть именно этим контрактом).
 const (
 	// USDTContractMain это USDT на основной сети TRON.
 	USDTContractMain = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -23,14 +23,21 @@ const (
 // ContractSource фиксирует, откуда взят адрес контракта и когда он сверен.
 type ContractSource struct {
 	Address   string
-	Source    string // URL официальной документации
-	CheckedOn string // дата сверки, ГГГГ-ММ-ДД; пусто, пока не сверено
+	Source    string // первоисточник
+	CheckedOn string // дата сверки, ГГГГ-ММ-ДД
+	Note      string // чем подтверждено и что осталось проверить
 }
 
 // USDTSources описывает происхождение адресов контрактов.
 var USDTSources = map[domain.Profile]ContractSource{
-	domain.ProfileMain: {Address: USDTContractMain, Source: "https://tether.to/en/supported-protocols/ (Tron TRC20)", CheckedOn: ""},
-	domain.ProfileTest: {Address: USDTContractNile, Source: "https://nile.tronscan.org (справочник токенов Nile)", CheckedOn: ""},
+	domain.ProfileMain: {
+		Address: USDTContractMain, Source: "https://tether.to/en/supported-protocols/ (раздел Tron, TRC20)", CheckedOn: "2026-11-16",
+		Note: "совпадает на странице Tether, tron.network/usdt и Tronscan",
+	},
+	domain.ProfileTest: {
+		Address: USDTContractNile, Source: "тестовый USDT сети Nile; документация BVNK и Turnkey, кран Nile", CheckedOn: "2026-11-16",
+		Note: "официального источника Tether для Nile нет; сверить с токеном из крана Nile перед гейтом",
+	},
 }
 
 // USDTDecimals это число знаков USDT; берётся из справочника domain.

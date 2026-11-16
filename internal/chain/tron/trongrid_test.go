@@ -257,3 +257,28 @@ func TestRateLimitThroughRealClient(t *testing.T) {
 		t.Error("nil client accepted")
 	}
 }
+
+func TestForbiddenFrequencyLimitIsRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"Success":false,"Error":"The key exceeds the frequency limit(15), and the query server is suspended for 30s","StatusCode":403}`))
+	}))
+	defer srv.Close()
+	c, _ := provider.New(provider.Options{Endpoints: []string{srv.URL}, MaxAttempts: 1})
+	g, _ := NewTronGrid(c)
+	me, _ := ParseAddress(otherAddr)
+	if _, _, err := g.Account(context.Background(), me); domain.CodeOf(err) != domain.CodeProviderRateLimited {
+		t.Fatalf("GET: %v", err)
+	}
+	if _, err := g.NowBlock(context.Background()); domain.CodeOf(err) != domain.CodeProviderRateLimited {
+		t.Fatalf("POST: %v", err)
+	}
+	// Другой 403 остаётся обычной ошибкой провайдера.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	defer srv2.Close()
+	c2, _ := provider.New(provider.Options{Endpoints: []string{srv2.URL}, MaxAttempts: 1})
+	g2, _ := NewTronGrid(c2)
+	if _, err := g2.NowBlock(context.Background()); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("plain 403: %v", err)
+	}
+}
