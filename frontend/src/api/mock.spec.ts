@@ -39,3 +39,35 @@ describe('mock wallet creation lifecycle', () => {
     await expect(api.prepareWallet('New wallet', 12)).rejects.toThrow('SESSION_LOCKED')
   })
 })
+
+
+describe('mock transfer lifecycle', () => {
+  it('records the exact asset, amount, fee and recipient from the confirmed quote', async () => {
+    const api = mockApi()
+    await api.unlock('test-password')
+
+    const quote = await api.prepare('demo', 'BTC', 'tb1qactualrecipient', '0.001')
+    await api.confirm(quote.draftId, 'test-password', '')
+
+    const history = await api.history('demo')
+    expect(history).toHaveLength(1)
+    expect(history[0]).toEqual(expect.objectContaining({
+      asset: 'BTC',
+      direction: 'out',
+      amount: '100000',
+      fee: '1000',
+      status: 'pending',
+      address: 'tb1qactualrecipient',
+    }))
+    await expect(api.confirm(quote.draftId, 'test-password', '')).rejects.toThrow('DRAFT_NOT_FOUND')
+  })
+
+  it('rejects amounts with more fractional digits than the asset supports', async () => {
+    const api = mockApi()
+    await api.unlock('test-password')
+    const quote = await api.prepare('demo', 'BTC', 'tb1qactualrecipient', '0.000000001')
+
+    await expect(api.confirm(quote.draftId, 'test-password', '')).rejects.toThrow('INVALID_SEND')
+    expect(await api.history('demo')).toHaveLength(0)
+  })
+})
