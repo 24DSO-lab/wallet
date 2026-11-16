@@ -33,11 +33,12 @@ CI workflow выполняет:
 - `govulncheck`;
 - сборку Windows-приложения Wails.
 
-Последний проверенный CI для `main` — [run 43830135029](https://github.com/24DSO-lab/wallet/actions/runs/43830135029),
-commit `8ce5e5f0e081d12c1b1a63387afece53ae2e3e41`: все jobs завершились успешно.
-Включая Playwright smoke tests, frontend typecheck/lint/Vitest/build, Go build/vet/race,
+Последний проверенный CI для `main` — [run 43853057189](https://github.com/24DSO-lab/wallet/actions/runs/43853057189),
+commit `60be6bc811c5611f3f344ecbadc4b120de046945`: все четыре jobs завершились успешно:
+`frontend`, `lint`, `go (ubuntu-latest)` и `go (windows-latest)`. В workflow входят
+Playwright smoke tests, frontend typecheck/ESLint/Vitest/build, Go build/vet/race,
 `govulncheck` и Windows Wails build. Дефект с очисткой пароля при первом запросе
-сессии исправлен в этом commit; Playwright-тесты не отключались и не ослаблялись.
+сессии исправлен ранее в commit `8ce5e5f`; Playwright-тесты не отключались и не ослаблялись.
 
 Зелёный CI подтверждает сборку и автоматические тесты, но не заменяет тестовые
 транзакции, сверку обозревателей и восстановление на чистой установке.
