@@ -17,6 +17,7 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/24DSO-lab/wallet/internal/config"
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/secret"
@@ -632,6 +633,9 @@ func (a *App) SetProfile(profile string) error {
 	p := domain.Profile(profile)
 	if !p.Valid() {
 		return errors.New("invalid_input")
+	}
+	if p == domain.ProfileMain && !config.MainnetEnabled {
+		return errors.New(string(domain.CodeMainnetDisabled))
 	}
 	a.mu.Lock()
 	current, change := a.profile, a.switchProfile
