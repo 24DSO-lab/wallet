@@ -76,6 +76,9 @@ func parseTransferCalldata(d []byte) (to Addr, amount *big.Int, err error) {
 // Marshal сериализует raw_data в каноническом порядке полей. Нулевые значения
 // пропускаются, как в proto3.
 func (r RawTx) Marshal() []byte {
+	if r.Expiration < 0 || r.Timestamp < 0 || r.FeeLimit < 0 {
+		return nil
+	}
 	var trig []byte
 	trig = pbAppendBytes(trig, 1, r.Owner[:])
 	trig = pbAppendBytes(trig, 2, r.Contract[:])
@@ -92,11 +95,11 @@ func (r RawTx) Marshal() []byte {
 	var raw []byte
 	raw = pbAppendBytes(raw, 1, r.RefBlockBytes[:])
 	raw = pbAppendBytes(raw, 4, r.RefBlockHash[:])
-	raw = pbAppendUint(raw, 8, uint64(r.Expiration))
+	raw = pbAppendUint(raw, 8, uint64(r.Expiration)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	raw = pbAppendBytes(raw, 11, ct)
-	raw = pbAppendUint(raw, 14, uint64(r.Timestamp))
+	raw = pbAppendUint(raw, 14, uint64(r.Timestamp)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	if r.FeeLimit != 0 {
-		raw = pbAppendUint(raw, 18, uint64(r.FeeLimit))
+		raw = pbAppendUint(raw, 18, uint64(r.FeeLimit)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	}
 	return raw
 }
@@ -129,13 +132,16 @@ func ParseRawTx(raw []byte) (RawTx, error) {
 		case f.num == 4 && f.wt == wtBytes && len(f.b) == 8:
 			r.RefBlockHash = [8]byte(f.b)
 		case f.num == 8 && f.wt == wtVarint:
-			r.Expiration = int64(f.v)
+			if f.v > uint64(^uint64(0)>>1) { return bad(errors.New("tron: expiration overflows int64")) }
+			r.Expiration = int64(f.v) //nolint:gosec // Range checked immediately above.
 		case f.num == 11 && f.wt == wtBytes:
 			contract = f.b
 		case f.num == 14 && f.wt == wtVarint:
-			r.Timestamp = int64(f.v)
+			if f.v > uint64(^uint64(0)>>1) { return bad(errors.New("tron: timestamp overflows int64")) }
+			r.Timestamp = int64(f.v) //nolint:gosec // Range checked immediately above.
 		case f.num == 18 && f.wt == wtVarint:
-			r.FeeLimit = int64(f.v)
+			if f.v > uint64(^uint64(0)>>1) { return bad(errors.New("tron: fee limit overflows int64")) }
+			r.FeeLimit = int64(f.v) //nolint:gosec // Range checked immediately above.
 		default:
 			// Сюда попадают memo (10), scripts (12), auths (9), второй
 			// контракт и любые чужие поля.

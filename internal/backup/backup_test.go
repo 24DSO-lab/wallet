@@ -551,7 +551,7 @@ func TestBackupWhileWriting(t *testing.T) {
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
 			t.Fatal(err)
 		}
-		if got := bal.Balance.Confirmed.String(); got != fmt.Sprint(len(txs)) && !(errors.Is(err, domain.ErrNotFound) && len(txs) == 0) {
+		if got := bal.Balance.Confirmed.String(); got != fmt.Sprint(len(txs)) && (!errors.Is(err, domain.ErrNotFound) || len(txs) != 0) {
 			t.Errorf("archive %d is inconsistent: balance %s, %d transactions", i, got, len(txs))
 		}
 	}
