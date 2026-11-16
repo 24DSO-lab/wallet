@@ -44,7 +44,7 @@ test('receives, sends and shows a transaction in history on the mock profile', a
 
   const confirmation = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Подтверждение' }) })
   await expect(confirmation).toBeVisible()
-  await confirmation.getByLabel('Пароль').fill('test-password')
+  await confirmation.locator('input[type="password"]').nth(0).fill('test-password')
   await page.getByRole('button', { name: 'Подписать и отправить' }).click()
 
   await expect(page.getByRole('heading', { name: 'История операций' })).toBeVisible()
