@@ -50,7 +50,7 @@ Application data is stored below `os.UserConfigDir()/wallet/`, separated by netw
 - `test/` — Bitcoin testnet, Ethereum Sepolia and TRON Nile
 - `main/` — Bitcoin mainnet, Ethereum mainnet and TRON mainnet
 
-Encrypted keystore files and the SQLite database remain local. Backups are written below the active profile's `backups/` directory and can be restored from Settings. New wallet creation persists the mnemonic only after Go verifies the recovery-word challenge. Settings also supports explicit seed reveal, password change and confirmed wallet deletion. Keep the BIP-39 recovery phrase offline; a backup archive does not replace it.
+Encrypted keystore files and the SQLite database remain local. Backups are written to a folder selected in the native directory picker and can be restored from Settings. New wallet creation persists the mnemonic only after Go verifies the recovery-word challenge. Settings also supports explicit seed reveal, password change and confirmed wallet deletion. Keep the BIP-39 recovery phrase offline; a backup archive does not replace it.
 
 ## Validation
 
