@@ -22,6 +22,12 @@ test('receives, sends and shows a transaction in history on the mock profile', a
   await expect(page.getByText('tb1qtestaddress000000000000000000000000000')).toBeVisible()
   await page.getByRole('button', { name: 'Назад' }).click()
 
+  // TRX is a fee asset: it can be received but is not a sendable asset.
+  await page.getByRole('button', { name: 'Получить TRX' }).click()
+  await expect(page.getByRole('heading', { name: 'Получить TRX' })).toBeVisible()
+  await expect(page.getByText('TQn9Y2khDD95J42FQtQTdwVVRx9h6f8z5D')).toBeVisible()
+  await page.getByRole('button', { name: 'Назад' }).click()
+
   // Prepare a BTC transfer from the wallet screen.
   await page.getByRole('button', { name: 'Отправить' }).click()
   await page.locator('select').first().selectOption('BTC')
