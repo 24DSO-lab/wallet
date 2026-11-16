@@ -39,3 +39,28 @@ func TestRandomChallengePositionsRejectsTooShortInput(t *testing.T) {
 		t.Fatal("expected invalid challenge length error")
 	}
 }
+
+func TestRequireUnlockedDoesNotExtendIdleTimeout(t *testing.T) {
+	a := New()
+	a.locked = false
+
+	if err := a.requireUnlocked(); err != nil {
+		t.Fatalf("requireUnlocked: %v", err)
+	}
+	if a.lockTimer != nil {
+		t.Fatal("background authorization check must not create or reset the idle timer")
+	}
+}
+
+func TestKeepAliveStartsIdleTimer(t *testing.T) {
+	a := New()
+	a.locked = false
+
+	if err := a.KeepAlive(); err != nil {
+		t.Fatalf("KeepAlive: %v", err)
+	}
+	if a.lockTimer == nil {
+		t.Fatal("foreground activity must start the idle timer")
+	}
+	a.Lock()
+}
