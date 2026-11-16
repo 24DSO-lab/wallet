@@ -53,7 +53,17 @@ func TestRoundTripWithRealKeystore(t *testing.T) {
 		c.CheckKeystoreFile = keystore.CheckFile
 		c.MaxSchemaVersion = store.SchemaVersion()
 		c.VerifyKeystorePassword = func(ctx context.Context, dir string, password secret.Bytes) error {
-			staged := newKS(filepath.Dir(dir))
+			staged, err := keystore.New(keystore.Config{
+				Dir: dir, Profile: domain.ProfileTest, KDF: kdf,
+				Addresses: map[domain.Network]keystore.AddressFunc{
+					domain.NetworkEthereum: hdtest.ETHAddress,
+					domain.NetworkTron:     hdtest.TronAddress,
+					domain.NetworkBitcoin:  func(pub []byte) (string, error) { return hdtest.P2WPKHFromPublicKey("tb", pub) },
+				},
+			})
+			if err != nil {
+				return err
+			}
 			return staged.Verify(ctx, ports.Secrets{Password: password})
 		}
 	}
