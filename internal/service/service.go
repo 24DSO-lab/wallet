@@ -725,6 +725,13 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 			continue
 		}
 		if status.State == domain.TxPending {
+			// A pending status alone is insufficient: some providers (notably
+			// TronGrid's transaction-info endpoint) report "not found" as
+			// pending. Keep the signed recovery record unresolved until a node
+			// explicitly recognizes the transaction.
+			if !status.Known {
+				continue
+			}
 			if !item.BroadcastAccepted {
 				item.BroadcastAccepted = true
 				if err := s.store.PendingTxs().Put(ctx, item); err != nil {
