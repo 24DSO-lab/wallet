@@ -119,9 +119,12 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	wallet := createTestWallet(t, svc)
 	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(100)}
 	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{9}}
-	_, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
+	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
 	if err == nil {
 		t.Fatal("expected broadcast error")
+	}
+	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
 	}
 	pending, err := st.PendingTxs().Get(context.Background(), txid)
 	if err != nil {
