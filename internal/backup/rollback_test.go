@@ -135,7 +135,6 @@ func TestRestoreDoesNotSkipPasswordVerificationForEmptyPassword(t *testing.T) {
 	sameTree(t, tree(t, dir), before)
 }
 
-
 func TestRollbackRestoresProfileWithoutKeystoreDirectory(t *testing.T) {
 	dir := t.TempDir()
 	previous := filepath.Join(dir, "pre-restore-no-keystore")
