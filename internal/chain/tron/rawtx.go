@@ -95,11 +95,11 @@ func (r RawTx) Marshal() []byte {
 	var raw []byte
 	raw = pbAppendBytes(raw, 1, r.RefBlockBytes[:])
 	raw = pbAppendBytes(raw, 4, r.RefBlockHash[:])
-	raw = pbAppendUint(raw, 8, uint64(r.Expiration) //nolint:gosec // Non-negative values are checked at the start of Marshal.)
+	raw = pbAppendUint(raw, 8, uint64(r.Expiration)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	raw = pbAppendBytes(raw, 11, ct)
-	raw = pbAppendUint(raw, 14, uint64(r.Timestamp) //nolint:gosec // Non-negative values are checked at the start of Marshal.)
+	raw = pbAppendUint(raw, 14, uint64(r.Timestamp)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	if r.FeeLimit != 0 {
-		raw = pbAppendUint(raw, 18, uint64(r.FeeLimit) //nolint:gosec // Non-negative values are checked at the start of Marshal.)
+		raw = pbAppendUint(raw, 18, uint64(r.FeeLimit)) //nolint:gosec // Non-negative values are checked at the start of Marshal.
 	}
 	return raw
 }
