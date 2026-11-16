@@ -168,7 +168,7 @@ func fillSegment(mem []block, pass, slice, lane, lanes, laneLen, segLen, memBloc
 		if pass == 0 && slice == 0 {
 			refLane = lane
 		}
-		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd & 0xffffffff), laneLen, segLen)
+		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd & 0xffffffff) //nolint:gosec // Argon2 index function uses the low 32 bits of pseudo-random output., laneLen, segLen)
 		compress(&mem[cur], &mem[prev], &mem[refLane*laneLen+refIdx], pass > 0)
 	}
 }
@@ -206,7 +206,7 @@ func indexAlpha(pass, slice, index uint32, sameLane bool, rnd32, laneLen, segLen
 	if pass != 0 && slice != syncPoints-1 {
 		startPos = (slice + 1) * segLen
 	}
-	return uint32(((uint64(startPos) + rel) % uint64(laneLen)) & 0xffffffff)
+	return uint32(((uint64(startPos)+rel)%uint64(laneLen))&0xffffffff) //nolint:gosec // The modulo result is an index bounded by laneLen.
 }
 
 // compress это G из RFC 9106: dst = P(prev xor ref) xor prev xor ref,
