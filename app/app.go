@@ -495,6 +495,9 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 			return nil, err
 		}
 	}
+	// Refresh the status of locally retained signed transactions before
+	// returning cached history. Provider failures do not hide existing history.
+	_, _ = a.svc.ReconcilePending(a.context())
 	txs, err := a.svc.GetHistory(a.context(), id, domainAsset)
 	if err != nil {
 		return nil, safeError(err)
