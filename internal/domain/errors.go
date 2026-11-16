@@ -38,6 +38,7 @@ const (
 	CodeProviderRateLimited ErrorCode = "provider_rate_limited"
 	CodeProviderBadResponse ErrorCode = "provider_bad_response"
 	CodeBroadcastRejected   ErrorCode = "broadcast_rejected"
+	CodeBroadcastUnknown    ErrorCode = "broadcast_unknown" // подписанная транзакция сохранена, результат отправки требует сверки
 	CodeKeystoreCorrupt     ErrorCode = "keystore_corrupt"
 	CodeBackupInvalid       ErrorCode = "backup_invalid"
 )
