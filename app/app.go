@@ -42,7 +42,7 @@ type App struct {
 	ctx           context.Context
 	svc           *service.Service
 	profile       domain.Profile
-	switchProfile func(context.Context, domain.Profile) error
+	switchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	createBackup  func(context.Context) error
 	locked        bool
 	lockTimeout   time.Duration
