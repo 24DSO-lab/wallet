@@ -284,6 +284,13 @@ func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Bitcoin receive addresses are discovered by the BIP84 gap-limit scan;
+	// refresh before asking the address repository for the next unused one.
+	if domainAsset == domain.BTC {
+		if _, err := a.svc.RefreshWallet(a.context(), id, domain.BTC); err != nil {
+			return "", safeError(err)
+		}
+	}
 	address, err := a.svc.GetReceiveAddress(a.context(), id, domainAsset)
 	if err != nil {
 		return "", safeError(err)
