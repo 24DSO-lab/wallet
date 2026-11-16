@@ -78,7 +78,7 @@ func keccak256(data []byte) [32]byte {
 	var out [32]byte
 	for i := range 4 {
 		for k := range 8 {
-			out[i*8+k] = byte((st[i] >> (8 * k)) & 0xff)
+			out[i*8+k] = byte((st[i]>>(8*k))&0xff) //nolint:gosec // Extracting one byte from a 64-bit Keccak lane.
 		}
 	}
 	return out
