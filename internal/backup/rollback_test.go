@@ -134,3 +134,50 @@ func TestRestoreDoesNotSkipPasswordVerificationForEmptyPassword(t *testing.T) {
 	}
 	sameTree(t, tree(t, dir), before)
 }
+
+
+func TestRollbackRestoresProfileWithoutKeystoreDirectory(t *testing.T) {
+	dir := t.TempDir()
+	previous := filepath.Join(dir, "pre-restore-no-keystore")
+	if err := os.MkdirAll(previous, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "wallet.db"), []byte("old-db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "keystore"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wallet.db"), []byte("new-db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keystore", "new.keystore"), []byte("new-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newService(t, dir, fakeDB{version: testSchema})
+	if err := svc.Rollback(previous); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "wallet.db"))
+	if err != nil || string(got) != "old-db" {
+		t.Fatalf("database = %q, %v; want previous database", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keystore")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("keystore directory should remain absent, got stat error %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundFailed := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "failed-restore-") {
+			foundFailed = true
+		}
+	}
+	if !foundFailed {
+		t.Fatal("failed restored files were not retained")
+	}
+}
+

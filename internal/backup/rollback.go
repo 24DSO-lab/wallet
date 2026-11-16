@@ -17,10 +17,8 @@ func (s *Service) Rollback(previousDir string) error {
 	if filepath.Dir(previousDir) != data || !strings.HasPrefix(filepath.Base(previousDir), "pre-restore-") {
 		return errors.New("backup: invalid previous data directory")
 	}
-	for _, name := range []string{s.cfg.DBName, s.cfg.KeystoreDirName} {
-		if _, err := os.Lstat(filepath.Join(previousDir, name)); err != nil {
-			return fmt.Errorf("backup: previous data is incomplete: %w", err)
-		}
+	if _, err := os.Lstat(filepath.Join(previousDir, s.cfg.DBName)); err != nil {
+		return fmt.Errorf("backup: previous database is missing: %w", err)
 	}
 
 	failedDir, err := os.MkdirTemp(data, "failed-restore-")
