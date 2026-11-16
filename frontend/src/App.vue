@@ -6,7 +6,7 @@ import { api } from './api/client'
 import type { Asset, Profile, Wallet, Tx, Quote } from './api/types'
 import { formatAmount } from './lib/amount'
 const router=useRouter(),route=useRoute();const locked=ref(true),profile=ref<Profile>('test'),wallets=ref<Wallet[]>([]),selected=ref(''),page=ref('home'),password=ref(''),error=ref(''),busy=ref(false),history=ref<Tx[]>([]),filter=ref<Asset|'ALL'>('ALL'),asset=ref<Asset>('BTC'),recipient=ref(''),amount=ref(''),quote=ref<Quote>(),passphrase=ref(''),name=ref('Новый кошелёк'),seed=ref(''),mode=ref<'create'|'import'>('create'),step=ref(1),qr=ref(''),address=ref(''),timeout=ref(5),newName=ref(''),notice=ref('');const current=computed(()=>wallets.value.find(w=>w.id===selected.value));const assets:Asset[]=['BTC','ETH','USDC','USDT'];const generated='abandon ability able about above absent absorb abstract absurd abuse access accident',seedVisible=ref(false)
-const clipboard=navigator.clipboard
+const clipboard=globalThis.navigator.clipboard
 watch(page,p=>{const path=p==='home'?'/':'/'+p;if(route.path!==path)void router.replace(path)})
 watch(()=>route.path,p=>{const next=p==='/'?'home':p.slice(1);if(next&&next!==page.value)page.value=next})
 watch(page,(next,previous)=>{if(previous==='wizard'&&next!=='wizard'){seed.value='';seedVisible.value=false;password.value='';passphrase.value=''}if(['send','review','confirm'].includes(previous)&&!['send','review','confirm'].includes(next)){password.value='';passphrase.value=''}})
