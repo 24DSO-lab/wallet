@@ -59,7 +59,7 @@ func newRBFTestService(t *testing.T, accepted bool, broadcastErr error) (*servic
 	chain := &fakeRBFChain{
 		FakeChain: testkit.NewFakeChain(testkit.FakeChainOptions{
 			Network: domain.NetworkBitcoin,
-			Status: ports.TxStatus{State: domain.TxPending},
+			Status: ports.TxStatus{State: domain.TxPending, Known: true},
 		}),
 		signed: ports.Signed{Network: domain.NetworkBitcoin, TxID: rbfReplacementTxID, Raw: []byte("replacement-raw")},
 		broadcastErr: broadcastErr,
