@@ -77,7 +77,7 @@ const (
 	addrB = "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"
 )
 
-func mustAddr(t *testing.T, s string) Address {
+func mustAddr(t testing.TB, s string) Address {
 	t.Helper()
 	a, _, err := parseAddress(s)
 	if err != nil {
