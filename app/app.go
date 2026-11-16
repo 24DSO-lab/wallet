@@ -464,7 +464,7 @@ func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return "", err
 	}
-	domainAsset, err := parseAsset(asset)
+	domainAsset, err := parseReceiveAsset(asset)
 	if err != nil {
 		return "", err
 	}
@@ -521,7 +521,7 @@ func (a *App) RefreshWallet(id, asset string) (BalanceDTO, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return BalanceDTO{}, err
 	}
-	da, err := parseAsset(asset)
+	da, err := parseReceiveAsset(asset)
 	if err != nil {
 		return BalanceDTO{}, err
 	}
@@ -788,6 +788,13 @@ func transactionExplorerURL(profile domain.Profile, tx domain.Tx) string {
 	default:
 		return ""
 	}
+}
+
+func parseReceiveAsset(s string) (domain.Asset, error) {
+	if s == string(domain.TRX) {
+		return domain.TRX, nil
+	}
+	return parseAsset(s)
 }
 
 func parseAsset(s string) (domain.Asset, error) {
