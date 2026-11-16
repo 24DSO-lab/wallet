@@ -65,9 +65,7 @@ describe('mock transfer lifecycle', () => {
   it('rejects amounts with more fractional digits than the asset supports', async () => {
     const api = mockApi()
     await api.unlock('test-password')
-    const quote = await api.prepare('demo', 'BTC', 'tb1qactualrecipient', '0.000000001')
-
-    await expect(api.confirm(quote.draftId, 'test-password', '')).rejects.toThrow('INVALID_SEND')
+    await expect(api.prepare('demo', 'BTC', 'tb1qactualrecipient', '0.000000001')).rejects.toThrow('INVALID_SEND')
     expect(await api.history('demo')).toHaveLength(0)
   })
 })
