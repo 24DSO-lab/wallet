@@ -240,8 +240,11 @@ func (s *Service) Create(ctx context.Context, destDir string) (res Result, err e
 			_ = os.Remove(final + checksumExt)
 			return Result{}, fmt.Errorf("backup: publish archive: %w", err)
 		}
-		syncDir(destDir)
-		return Result{Path: final, ChecksumPath: final + checksumExt, SHA256: sum, Files: 1 + len(ks)}, nil
+        result := Result{Path: final, ChecksumPath: final + checksumExt, SHA256: sum, Files: 1 + len(ks)}
+        if err := syncDir(destDir); err != nil {
+            return result, fmt.Errorf("backup: archive published but destination directory sync failed: %w", err)
+        }
+        return result, nil
 	}
 	return Result{}, errors.New("backup: could not choose a free archive name")
 }
@@ -375,15 +378,6 @@ func (s *Service) writeArchive(ctx context.Context, path, snap string, ks []keys
 		return fmt.Errorf("backup: sync archive: %w", err)
 	}
 	return nil
-}
-
-// syncDir сбрасывает каталог на диск там, где ОС это позволяет (на Windows
-// каталог так не открыть, ошибка игнорируется).
-func syncDir(dir string) {
-	if d, err := os.Open(dir); err == nil { //nolint:gosec // каталог назначения
-		_ = d.Sync()
-		_ = d.Close()
-	}
 }
 
 func fileSHA256(ctx context.Context, path string) (string, error) {

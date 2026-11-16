@@ -44,6 +44,9 @@ func (s *Service) Rollback(previousDir string) error {
 				rollbackErrs = append(rollbackErrs, err)
 			}
 		}
+		if syncErr := syncDir(data); syncErr != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("sync rollback directory: %w", syncErr))
+		}
 		if len(rollbackErrs) != 0 {
 			return errors.Join(append([]error{
 				fmt.Errorf("backup: rollback previous profile failed; previous data: %s; failed data: %s: %w", previousDir, failedDir, cause),
@@ -73,7 +76,9 @@ func (s *Service) Rollback(previousDir string) error {
 			return rollbackMoves(err)
 		}
 	}
-	syncDir(data)
+	if err := syncDir(data); err != nil {
+		return rollbackMoves(fmt.Errorf("sync restored profile directory: %w", err))
+	}
 	if err := os.Remove(previousDir); err != nil {
 		return fmt.Errorf("backup: previous profile restored but could not remove empty recovery directory: %w", err)
 	}

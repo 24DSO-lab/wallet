@@ -95,6 +95,13 @@ func (s *Service) Restore(ctx context.Context, archivePath string, password secr
 	}
 
 	// 4. Содержимое: заголовки keystore без пароля и заголовок БД.
+	// Flush staged file contents and directory entries before they can become active.
+	for _, dir := range []string{stagedDB, stagedKS, staging} {
+		if err := syncDir(dir); err != nil {
+			return RestoreResult{}, fmt.Errorf("backup: sync staged restore data: %w", err)
+		}
+	}
+
 	for _, fe := range man.Files {
 		if !strings.HasPrefix(fe.Path, keystorePrefix) {
 			continue
@@ -251,6 +258,9 @@ func (s *Service) extract(ctx context.Context, zf *zip.File, fe FileEntry, dst, 
 	// Читаем не больше заявленного в манифесте плюс один байт: бомба в
 	// архиве упирается в лимит, а не в диск.
 	n, err := io.Copy(io.MultiWriter(out, h), io.LimitReader(ctxReader{ctx, rc}, fe.Size+1))
+	if err == nil {
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil && cerr != nil {
 		err = cerr
 	}
