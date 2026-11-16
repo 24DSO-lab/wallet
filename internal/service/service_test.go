@@ -136,7 +136,7 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	if err != nil {
 		t.Fatalf("pending transaction was not retained: %v", err)
 	}
-	if pending.WalletID != wallet.ID || pending.Asset != domain.BTC || string(pending.Raw) != string([]byte{1, 2, 3}) {
+	if pending.WalletID != wallet.ID || pending.Asset != domain.BTC || string(pending.Raw) != string([]byte{1, 2, 3}) || string(pending.Draft) != string(prepared.Draft) || pending.BroadcastAccepted {
 		t.Fatalf("unexpected pending transaction: %+v", pending)
 	}
 	history, err := st.Transactions().List(context.Background(), wallet.ID, domain.BTC)
@@ -187,7 +187,38 @@ func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
 	}
 }
 
-func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testing.T) {
+
+func TestReconcilePendingMarksMempoolTransactionAccepted(t *testing.T) {
+	const txid domain.TxID = "seen-in-mempool"
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network:  domain.NetworkBitcoin,
+		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
+		Signed:   ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{1, 3, 5}},
+		Status:   ports.TxStatus{State: domain.TxPending},
+		Failures: map[testkit.ChainOperation]error{
+			testkit.ChainBroadcast: errors.New("connection closed after submit"),
+		},
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(100)}
+	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{4}}
+	if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets()); domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ConfirmSend error = %v, want broadcast_unknown", err)
+	}
+	if n, err := svc.ReconcilePending(context.Background()); err != nil || n != 0 {
+		t.Fatalf("ReconcilePending = (%d, %v), want no terminal transitions", n, err)
+	}
+	pending, err := st.PendingTxs().Get(context.Background(), txid)
+	if err != nil || !pending.BroadcastAccepted {
+		t.Fatalf("mempool-seen transaction was not marked accepted: %+v, %v", pending, err)
+	}
+	if _, err := svc.PrepareSend(context.Background(), intent); err != nil {
+		t.Fatalf("new send should be allowed after provider confirms mempool acceptance: %v", err)
+	}
+}
+
+func TestConfirmSendSuccessKeepsPendingHistoryAndRecoveryPayloadForRBF(t *testing.T) {
 	const txid domain.TxID = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
 		Network: domain.NetworkBitcoin,
@@ -206,8 +237,12 @@ func TestConfirmSendSuccessKeepsPendingHistoryAndRemovesRecoveryPayload(t *testi
 	if got != txid {
 		t.Fatalf("txid = %q, want %q", got, txid)
 	}
-	if _, err := st.PendingTxs().Get(context.Background(), txid); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("recovery payload was not removed after broadcast acceptance: %v", err)
+	pending, err := st.PendingTxs().Get(context.Background(), txid)
+	if err != nil {
+		t.Fatalf("recovery payload was not retained for RBF: %v", err)
+	}
+	if !pending.BroadcastAccepted || string(pending.Draft) != string(prepared.Draft) || string(pending.Raw) != string([]byte{4, 5, 6}) {
+		t.Fatalf("pending transaction lacks RBF metadata: %+v", pending)
 	}
 	history, err := st.Transactions().List(context.Background(), wallet.ID, domain.BTC)
 	if err != nil || len(history) != 1 {

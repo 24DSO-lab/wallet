@@ -62,9 +62,9 @@ func TestMigrateFromScratch(t *testing.T) {
 			t.Errorf("table %s is missing", tbl)
 		}
 	}
-	// Таблицу swap этап 4 (на холде) не создаёт.
+	// Таблица swap остаётся на холде; миграция 4 расширяет только pending_tx.
 	if tableExists(t, d.w, "swap") {
-		t.Error("swap table must not exist while stage 4 is on hold")
+		t.Error("swap table must not exist while swap remains on hold")
 	}
 }
 
@@ -74,6 +74,7 @@ func TestMigrateStepByStep(t *testing.T) {
 	wantTables := [][]string{
 		{"wallet", "address", "setting"},
 		{"balance", "utxo", "tx"},
+		{"pending_tx"},
 		{"pending_tx"},
 	}
 	if len(migs) != len(wantTables) {
