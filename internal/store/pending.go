@@ -37,6 +37,10 @@ func (r pendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 	case len(p.Raw) == 0:
 		return invalid("pending tx raw %w", errEmpty)
 	}
+	draft := p.Draft
+	if draft == nil {
+		draft = []byte{}
+	}
 	return r.s.write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO pending_tx (txid, wallet_id, asset, network, raw, draft, broadcast_accepted, replaces_txid, created_at)
@@ -45,7 +49,7 @@ func (r pendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 			   wallet_id = excluded.wallet_id, asset = excluded.asset,
 			   network = excluded.network, raw = excluded.raw, draft = excluded.draft,
 			   broadcast_accepted = excluded.broadcast_accepted, replaces_txid = excluded.replaces_txid`,
-			p.TxID, p.WalletID, p.Asset, p.Network, p.Raw, p.Draft, boolInt(p.BroadcastAccepted), p.ReplacesTxID, toDBTime(p.CreatedAt))
+			p.TxID, p.WalletID, p.Asset, p.Network, p.Raw, draft, boolInt(p.BroadcastAccepted), p.ReplacesTxID, toDBTime(p.CreatedAt))
 		if err != nil {
 			if isForeignKey(err) {
 				return notFound(fmt.Sprintf("wallet %q", p.WalletID))
