@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 
@@ -46,7 +47,8 @@ func (e *SpendEngine) PrepareReplacement(ctx context.Context, wallet domain.Publ
 	if err != nil {
 		return ports.Replacement{}, domain.NewError(domain.CodeVerificationFailed, err)
 	}
-	if !bytes.Equal(stripped, mustDecodeHex(oldDraft.UnsignedTx)) || txIDFromRaw(original.Raw) != strings.ToLower(string(original.TxID)) {
+	oldUnsigned, err := hex.DecodeString(oldDraft.UnsignedTx)
+	if err != nil || !bytes.Equal(stripped, oldUnsigned) || txIDFromRaw(original.Raw) != strings.ToLower(string(original.TxID)) {
 		return ports.Replacement{}, domain.NewError(domain.CodeVerificationFailed, errors.New("btc: stored signed transaction does not match its original draft"))
 	}
 
@@ -243,8 +245,14 @@ func decodeSpendDraft(encoded []byte) (spendDraft, error) {
 	if err := dec.Decode(&draft); err != nil {
 		return draft, err
 	}
-	if dec.More() {
-		return draft, errors.New("trailing draft data")
+	// Decode a second value: More is only meaningful inside arrays/objects
+	// and does not detect another top-level JSON value.
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return draft, errors.New("trailing draft data")
+		}
+		return draft, fmt.Errorf("trailing draft data: %w", err)
 	}
 	canonical, err := json.Marshal(draft)
 	if err != nil || !bytes.Equal(canonical, encoded) {
@@ -253,10 +261,6 @@ func decodeSpendDraft(encoded []byte) (spendDraft, error) {
 	return draft, nil
 }
 
-func mustDecodeHex(s string) []byte {
-	b, _ := hex.DecodeString(s)
-	return b
-}
 
 func txIDFromRaw(raw []byte) string {
 	stripped, err := stripWitness(raw)
