@@ -552,7 +552,7 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 		return err
 	}
 	for _, tx := range pending {
-		if tx.WalletID == walletID && tx.Network == network {
+		if tx.WalletID == walletID && tx.Network == network && !tx.BroadcastAccepted {
 			return domain.NewError(domain.CodeDuplicateSend, errors.New("wallet has an unresolved broadcast on this network"))
 		}
 	}
@@ -608,7 +608,7 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 		return "", domain.NewError(domain.CodeVerificationFailed, errors.New("adapter returned invalid signed transaction"))
 	}
 	now := s.now().UTC()
-	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), CreatedAt: now}
+	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), Draft: append([]byte(nil), prepared.Draft...), CreatedAt: now}
 	history := domain.Tx{
 		WalletID: walletID, Asset: intent.Asset, TxID: signed.TxID, Direction: domain.DirectionOut,
 		Amount: intent.Amount, Fee: prepared.Fee, FeeAsset: prepared.FeeAsset, Status: domain.TxPending,
@@ -634,10 +634,11 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	if txid != signed.TxID {
 		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 	}
-	if err := s.store.PendingTxs().Delete(ctx, signed.TxID); err != nil {
-		s.log.Error("broadcast succeeded but pending record cleanup failed", "wallet_id", walletID, "error", err)
-		// The tx is already in the network. Return success; reconciliation can
-		// remove the stale pending record without risking a second broadcast.
+	pending.BroadcastAccepted = true
+	if err := s.store.PendingTxs().Put(ctx, pending); err != nil {
+		s.log.Error("broadcast succeeded but acceptance state could not be persisted", "wallet_id", walletID, "error", err)
+		// The transaction is already in the network. Keep the conservative
+		// unresolved state; a later status lookup will mark it accepted.
 	}
 	return txid, nil
 }
@@ -694,6 +695,12 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 			continue
 		}
 		if status.State == domain.TxPending {
+			if !item.BroadcastAccepted {
+				item.BroadcastAccepted = true
+				if err := s.store.PendingTxs().Put(ctx, item); err != nil {
+					failures = append(failures, fmt.Errorf("persist accepted broadcast %q: %w", item.TxID, err))
+				}
+			}
 			continue
 		}
 
