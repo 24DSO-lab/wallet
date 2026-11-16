@@ -103,8 +103,12 @@ func TestReconcilePendingLeavesUnresolvedRecords(t *testing.T) {
 			if count != 0 || (err != nil) != tc.wantErr {
 				t.Fatalf("ReconcilePending() = (%d, %v), want count 0 and error=%t", count, err, tc.wantErr)
 			}
-			if _, err := st.PendingTxs().Get(context.Background(), txid); err != nil {
+			pending, err := st.PendingTxs().Get(context.Background(), txid)
+			if err != nil {
 				t.Fatalf("unresolved pending payload was removed: %v", err)
+			}
+			if tc.name == "still pending" && pending.BroadcastAccepted {
+				t.Fatal("unknown pending transaction must remain unresolved")
 			}
 			history, err := st.Transactions().Get(context.Background(), wallet.ID, domain.BTC, txid)
 			if err != nil {
