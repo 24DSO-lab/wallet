@@ -243,7 +243,7 @@ func TestTransactionValidation(t *testing.T) {
 func TestPendingTx(t *testing.T) {
 	d := openTest(t)
 	mkWallet(t, d, "w", 0)
-	p := ports.PendingTx{TxID: "tx1", WalletID: "w", Asset: domain.USDT, Network: domain.NetworkTron, Raw: []byte{0, 1, 2, 255}, CreatedAt: ms(10)}
+	p := ports.PendingTx{TxID: "tx1", WalletID: "w", Asset: domain.USDT, Network: domain.NetworkTron, Raw: []byte{0, 1, 2, 255}, Draft: []byte{9, 8, 7}, BroadcastAccepted: true, ReplacesTxID: "old-tx", CreatedAt: ms(10)}
 	if err := d.PendingTxs().Put(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestPendingTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got.Raw) != string(p.Raw) || got.Network != p.Network || got.Asset != p.Asset || !got.CreatedAt.Equal(ms(10)) {
+	if string(got.Raw) != string(p.Raw) || string(got.Draft) != string(p.Draft) || got.Network != p.Network || got.Asset != p.Asset || !got.BroadcastAccepted || got.ReplacesTxID != p.ReplacesTxID || !got.CreatedAt.Equal(ms(10)) {
 		t.Errorf("Get = %+v", got)
 	}
 	if n := count(t, d, "pending_tx"); n != 1 {

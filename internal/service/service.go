@@ -73,6 +73,8 @@ type Service struct {
 	now       func() time.Time
 	newID     func() (string, error)
 	lifecycle sync.Mutex
+	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
+	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
 }
 
 // New validates and copies all dependencies. A chain map entry must be keyed
@@ -506,6 +508,8 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 // PrepareSend creates and verifies an unsigned draft. It never asks for a
 // password and never has access to private keys.
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	if err := intent.Validate(); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -515,6 +519,11 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	}
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
+	// Resolve previously ambiguous sends before deciding whether a new send is safe.
+	_, _ = s.ReconcilePending(ctx)
+	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
+		return ports.Prepared{}, err
+	}
 	chain := s.chains[info.Network]
 	if chain == nil {
 		return ports.Prepared{}, domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
@@ -535,12 +544,29 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	return prepared, nil
 }
 
+// rejectPendingBroadcast prevents a new send from reusing a nonce or UTXO
+// while a previous signed transaction has an unresolved broadcast outcome.
+func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, network domain.Network) error {
+	pending, err := s.store.PendingTxs().List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, tx := range pending {
+		if tx.WalletID == walletID && tx.Network == network && !tx.BroadcastAccepted {
+			return domain.NewError(domain.CodeDuplicateSend, errors.New("wallet has an unresolved broadcast on this network"))
+		}
+	}
+	return nil
+}
+
 // ConfirmSend re-verifies the exact draft immediately before signing, then
-// stores the signed transaction before broadcasting. If broadcast has an
-// ambiguous result, the pending record is deliberately retained for later
-// reconciliation; this method never blindly retries a non-idempotent send.
+// stores the signed transaction and unsigned draft before broadcasting. The
+// recovery record remains until confirmation so an accepted BTC transaction
+// can be replaced by fee; ambiguous broadcasts are never blindly retried.
 // Password and passphrase are consumed and wiped by this method.
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
 	if walletID == "" || intent.Wallet.ID != walletID {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("wallet id does not match send intent"))
@@ -553,6 +579,9 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	info, ok := intent.Asset.Info()
 	if !ok || !intent.Asset.IsWalletAsset() {
 		return "", domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
+		return "", err
 	}
 	chain := s.chains[info.Network]
 	if chain == nil {
@@ -579,7 +608,7 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 		return "", domain.NewError(domain.CodeVerificationFailed, errors.New("adapter returned invalid signed transaction"))
 	}
 	now := s.now().UTC()
-	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), CreatedAt: now}
+	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), Draft: append([]byte(nil), prepared.Draft...), CreatedAt: now}
 	history := domain.Tx{
 		WalletID: walletID, Asset: intent.Asset, TxID: signed.TxID, Direction: domain.DirectionOut,
 		Amount: intent.Amount, Fee: prepared.Fee, FeeAsset: prepared.FeeAsset, Status: domain.TxPending,
@@ -597,15 +626,19 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	}
 	txid, err := chain.Broadcast(ctx, signed)
 	if err != nil {
-		return "", err
+		// The signed transaction is already durable in pending_tx. Return its
+		// locally computed ID so the Wails facade can consume the draft and the
+		// UI can reconcile status instead of signing/broadcasting it again.
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
 	}
 	if txid != signed.TxID {
-		return "", domain.NewError(domain.CodeProviderBadResponse, errors.New("broadcast transaction id differs from locally finalized id"))
+		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 	}
-	if err := s.store.PendingTxs().Delete(ctx, signed.TxID); err != nil {
-		s.log.Error("broadcast succeeded but pending record cleanup failed", "wallet_id", walletID, "error", err)
-		// The tx is already in the network. Return success; reconciliation can
-		// remove the stale pending record without risking a second broadcast.
+	pending.BroadcastAccepted = true
+	if err := s.store.PendingTxs().Put(ctx, pending); err != nil {
+		s.log.Error("broadcast succeeded but acceptance state could not be persisted", "wallet_id", walletID, "error", err)
+		// The transaction is already in the network. Keep the conservative
+		// unresolved state; a later status lookup will mark it accepted.
 	}
 	return txid, nil
 }
@@ -613,13 +646,16 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // ReconcilePending checks every locally retained signed transaction against
 // its network adapter. Confirmed and failed transactions are written to the
 // history and their recovery payloads are deleted in the same database
-// transaction. A still-pending transaction is left untouched.
+// transaction. A still-pending transaction is marked accepted and retained
+// for a possible BTC fee replacement.
 //
 // The returned count is the number of transactions moved out of the pending
 // state. Failures for individual records are joined and do not prevent the
 // remaining records from being checked. The signed Raw payload is never
 // logged or returned.
 func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list pending transactions: %w", err)
@@ -660,6 +696,12 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 			continue
 		}
 		if status.State == domain.TxPending {
+			if !item.BroadcastAccepted {
+				item.BroadcastAccepted = true
+				if err := s.store.PendingTxs().Put(ctx, item); err != nil {
+					failures = append(failures, fmt.Errorf("persist accepted broadcast %q: %w", item.TxID, err))
+				}
+			}
 			continue
 		}
 
