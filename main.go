@@ -22,6 +22,8 @@ func main() {
 		Width:       1100,
 		Height:      760,
 		AssetServer: &assetserver.Options{Assets: assets},
+		OnStartup:   a.Startup,
+		OnShutdown:  a.Shutdown,
 		Bind:        []any{a},
 	})
 	if err != nil {
