@@ -98,9 +98,10 @@ func (a *Adapter) Broadcast(ctx context.Context, s ports.Signed) (domain.TxID, e
 	return domain.TxID(want), nil
 }
 
-// Status возвращает состояние транзакции. Пока транзакции нет в блоке или
-// блок моложе SolidityDepth, она считается ожидающей; ошибка исполнения
-// (REVERT, нехватка energy) это failed.
+// Status возвращает состояние транзакции. Found=false означает, что TronGrid
+// пока не подтвердил наличие транзакции: это pending, но Known=false и не
+// доказательство принятия в сеть. Найденная транзакция имеет Known=true;
+// до SolidityDepth она pending, REVERT/нехватка energy это failed.
 func (a *Adapter) Status(ctx context.Context, id domain.TxID) (ports.TxStatus, error) {
 	s := strings.ToLower(string(id))
 	if b, err := hex.DecodeString(s); err != nil || len(b) != 32 {
@@ -121,7 +122,7 @@ func statusOf(info TxInfo) ports.TxStatus {
 	if info.CurrentTip >= info.BlockNumber {
 		conf = uint32(min(info.CurrentTip-info.BlockNumber+1, 1<<31))
 	}
-	st := ports.TxStatus{BlockHeight: info.BlockNumber, Confirmations: conf}
+	st := ports.TxStatus{Known: true, BlockHeight: info.BlockNumber, Confirmations: conf}
 	switch {
 	case !info.Success:
 		st.State = domain.TxFailed
