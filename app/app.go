@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/secret"
@@ -30,6 +32,7 @@ type Dependencies struct {
 	Profile       domain.Profile
 	SwitchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	CreateBackup  func(context.Context) error
+	RestoreBackup func(context.Context, string) (*service.Service, error)
 }
 
 type pendingDraft struct {
@@ -49,6 +52,7 @@ type App struct {
 	profile       domain.Profile
 	switchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	createBackup  func(context.Context) error
+	restoreBackup func(context.Context, string) (*service.Service, error)
 	locked        bool
 	lockTimeout   time.Duration
 	lockTimer     *time.Timer
@@ -72,7 +76,7 @@ func NewWithDependencies(d Dependencies) *App {
 	}
 	return &App{
 		ctx: context.Background(), svc: d.Service, profile: p,
-		switchProfile: d.SwitchProfile, createBackup: d.CreateBackup,
+		switchProfile: d.SwitchProfile, createBackup: d.CreateBackup, restoreBackup: d.RestoreBackup,
 		locked: true, lockTimeout: defaultLockTimeout,
 		drafts: make(map[string]pendingDraft),
 	}
@@ -582,6 +586,50 @@ func (a *App) SetLockTimeout(minutes int) error {
 		a.lockTimer = time.AfterFunc(a.lockTimeout, a.Lock)
 	}
 	a.mu.Unlock()
+	return nil
+}
+
+// RestoreBackup opens a native file picker, restores the selected archive,
+// then verifies its keystore password before unlocking the restored profile.
+func (a *App) RestoreBackup(password string) error {
+	if err := a.ready(); err != nil {
+		return err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		return err
+	}
+	if a.restoreBackup == nil {
+		return errors.New("restore_not_configured")
+	}
+	path, err := wailsruntime.OpenFileDialog(a.context(), wailsruntime.OpenDialogOptions{
+		Title: "Restore wallet backup",
+		Filters: []wailsruntime.FileFilter{{DisplayName: "Wallet backup (*.zip)", Pattern: "*.zip"}},
+	})
+	if err != nil {
+		return safeError(err)
+	}
+	if path == "" {
+		return nil
+	}
+
+	a.Lock()
+	restored, restoreErr := a.restoreBackup(a.context(), path)
+	a.mu.Lock()
+	a.svc = restored
+	a.mu.Unlock()
+	if restoreErr != nil {
+		return safeError(restoreErr)
+	}
+	if restored == nil {
+		return errors.New("restore_failed")
+	}
+	if err := restored.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
+		return safeError(err)
+	}
+	a.mu.Lock()
+	a.locked = false
+	a.mu.Unlock()
+	a.touch()
 	return nil
 }
 
