@@ -8,6 +8,14 @@ const bal = (asset: Asset, amount: string, updatedAt = stamp()): Balance => ({
   asset, amount, decimals: decimals(asset), network: network(asset), updatedAt,
 })
 
+// Convert user-facing decimal strings to integer base units without floating point.
+const toBaseUnits = (value: string, asset: Asset): string => {
+  const [whole, fraction = ''] = value.split('.')
+  const places = decimals(asset)
+  if (fraction.length > places) throw Error('INVALID_SEND')
+  return BigInt(`${whole}${fraction.padEnd(places, '0')}`).toString()
+}
+
 export function mockApi(): Api {
   let locked = true
   let net: Profile = 'test'
@@ -24,6 +32,7 @@ export function mockApi(): Api {
     ],
   }]
   let txs: Tx[] = []
+  const drafts = new Map<string, Quote>()
   const guard = () => {
     if (locked) throw Error('SESSION_LOCKED')
   }
@@ -109,7 +118,7 @@ export function mockApi(): Api {
       guard()
       await wait()
       if (!to.trim() || !/^\d+(\.\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
-      return {
+      const quote: Quote = {
         draftId: crypto.randomUUID(),
         asset,
         network: asset === 'BTC' ? 'Bitcoin testnet' : asset === 'USDT' ? 'TRON Nile' : 'Ethereum Sepolia',
@@ -120,19 +129,30 @@ export function mockApi(): Api {
         total: amount,
         warnings: [],
       }
+      drafts.set(quote.draftId, structuredClone(quote))
+      return quote
     },
     async prepareRBF() {
       guard()
       throw Error('RBF_UNAVAILABLE_IN_MOCK')
     },
-    async confirm() {
+    async confirm(draftId, password) {
       guard()
+      if (!password) throw Error('INVALID_PASSWORD')
+      const quote = drafts.get(draftId)
+      if (!quote) throw Error('DRAFT_NOT_FOUND')
       await wait(400)
       txs = [{
-        id: crypto.randomUUID(), asset: 'BTC', direction: 'out',
-        amount: '1000000', fee: '1000', status: 'pending',
-        timestamp: stamp(), address: 'mock-recipient',
+        id: crypto.randomUUID(),
+        asset: quote.asset,
+        direction: 'out',
+        amount: toBaseUnits(quote.amount, quote.asset),
+        fee: toBaseUnits(quote.fee, quote.feeAsset as Asset),
+        status: 'pending',
+        timestamp: stamp(),
+        address: quote.recipient,
       }, ...txs]
+      drafts.delete(draftId)
     },
     async profile(profile) { net = profile },
     async timeout(minutes) { timeout = minutes },
