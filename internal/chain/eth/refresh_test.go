@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 // fakeRPC это RPC на заготовленных значениях.
 type fakeRPC struct {
+	mu       sync.Mutex // фейк вызывается из нескольких горутин
 	chainID  uint64
 	chainErr error
 	balance  *big.Int
@@ -21,39 +23,65 @@ type fakeRPC struct {
 	calls    []string
 
 	chainCalls int
+
+	head    uint64
+	nonce   uint64
+	nonceEr error
+	gas     uint64
+	gasErr  error
+	gasMsg  *CallMsg
+	fees    FeeHistory
+	feesErr error
+
+	sendErr   error
+	sendHash  string
+	sentRaw   [][]byte
+	receipt   *Receipt
+	receiptEr error
+	known     bool
+	knownErr  error
+	headErr   error
 }
 
 func (f *fakeRPC) ChainID(context.Context) (uint64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.chainCalls++
 	return f.chainID, f.chainErr
 }
-func (f *fakeRPC) BlockNumber(context.Context) (uint64, error) { return 0, errors.New("unused") }
+func (f *fakeRPC) BlockNumber(context.Context) (uint64, error) { return f.head, f.headErr }
 func (f *fakeRPC) Balance(context.Context, Address) (*big.Int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "balance")
 	return f.balance, f.balErr
 }
 func (f *fakeRPC) Call(_ context.Context, to Address, _ []byte) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "call:"+to.String())
 	return f.callOut, f.callErr
 }
-func (f *fakeRPC) PendingNonce(context.Context, Address) (uint64, error) {
-	return 0, errors.New("unused")
-}
-func (f *fakeRPC) EstimateGas(context.Context, CallMsg) (uint64, error) {
-	return 0, errors.New("unused")
+func (f *fakeRPC) PendingNonce(context.Context, Address) (uint64, error) { return f.nonce, f.nonceEr }
+func (f *fakeRPC) EstimateGas(_ context.Context, m CallMsg) (uint64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gasMsg = &m
+	return f.gas, f.gasErr
 }
 func (f *fakeRPC) FeeHistory(context.Context, int, []float64) (FeeHistory, error) {
-	return FeeHistory{}, errors.New("unused")
+	return f.fees, f.feesErr
 }
-func (f *fakeRPC) SendRawTransaction(context.Context, []byte) (string, error) {
-	return "", errors.New("unused")
+func (f *fakeRPC) SendRawTransaction(_ context.Context, raw []byte) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentRaw = append(f.sentRaw, raw)
+	return f.sendHash, f.sendErr
 }
 func (f *fakeRPC) TransactionReceipt(context.Context, string) (*Receipt, error) {
-	return nil, errors.New("unused")
+	return f.receipt, f.receiptEr
 }
-func (f *fakeRPC) TransactionKnown(context.Context, string) (bool, error) {
-	return false, errors.New("unused")
-}
+func (f *fakeRPC) TransactionKnown(context.Context, string) (bool, error) { return f.known, f.knownErr }
 
 // fakeIndexer это Indexer на заготовленных значениях.
 type fakeIndexer struct {
