@@ -53,6 +53,26 @@ func TestEsploraGetAddress(t *testing.T) {
 	}
 }
 
+func TestEsploraGetAddressRejectsIncompleteStats(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{name: "missing chain stats", body: `{"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
+		{name: "missing mempool stats", body: `{"chain_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
+		{name: "missing funded counter", body: `{"chain_stats":{"spent_txo_sum":0},"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
+		{name: "null spent counter", body: `{"chain_stats":{"funded_txo_sum":0,"spent_txo_sum":null},"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
+		{name: "empty object", body: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &recordingProvider{response: provider.Response{Status: http.StatusOK, Body: []byte(tc.body)}}
+			api, _ := NewEsplora(p, domain.ProfileTest)
+			if _, err := api.GetAddress(context.Background(), validTestAddress()); !errors.Is(err, ErrMalformedResponse) {
+				t.Fatalf("expected malformed response, got %v", err)
+			}
+		})
+	}
+}
+
 func TestEsploraGetUTXOsRejectsMalformedTxID(t *testing.T) {
 	p := &recordingProvider{response: provider.Response{Body: []byte(`[{"txid":"bad","vout":0,"value":42,"status":{"confirmed":false}}]`)}}
 	api, _ := NewEsplora(p, domain.ProfileTest)

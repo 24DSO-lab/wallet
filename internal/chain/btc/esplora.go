@@ -108,21 +108,26 @@ func (e *Esplora) GetAddress(ctx context.Context, address string) (AddressInfo, 
 		return AddressInfo{}, err
 	}
 	var raw struct {
-		ChainStats struct {
-			Funded uint64 `json:"funded_txo_sum"`
-			Spent  uint64 `json:"spent_txo_sum"`
+		ChainStats *struct {
+			Funded *uint64 `json:"funded_txo_sum"`
+			Spent  *uint64 `json:"spent_txo_sum"`
 		} `json:"chain_stats"`
-		MempoolStats struct {
-			Funded uint64 `json:"funded_txo_sum"`
-			Spent  uint64 `json:"spent_txo_sum"`
+		MempoolStats *struct {
+			Funded *uint64 `json:"funded_txo_sum"`
+			Spent  *uint64 `json:"spent_txo_sum"`
 		} `json:"mempool_stats"`
 	}
 	if err := e.getJSON(ctx, "/address/"+url.PathEscape(address), &raw); err != nil {
 		return AddressInfo{}, err
 	}
+	if raw.ChainStats == nil || raw.MempoolStats == nil ||
+		raw.ChainStats.Funded == nil || raw.ChainStats.Spent == nil ||
+		raw.MempoolStats.Funded == nil || raw.MempoolStats.Spent == nil {
+		return AddressInfo{}, ErrMalformedResponse
+	}
 	return AddressInfo{
-		ChainStats: AddressStats{Funded: raw.ChainStats.Funded, Spent: raw.ChainStats.Spent},
-		MempoolStats: AddressStats{Funded: raw.MempoolStats.Funded, Spent: raw.MempoolStats.Spent},
+		ChainStats: AddressStats{Funded: *raw.ChainStats.Funded, Spent: *raw.ChainStats.Spent},
+		MempoolStats: AddressStats{Funded: *raw.MempoolStats.Funded, Spent: *raw.MempoolStats.Spent},
 	}, nil
 }
 
