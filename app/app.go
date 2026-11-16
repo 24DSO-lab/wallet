@@ -35,6 +35,9 @@ type Dependencies struct {
 	SwitchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	CreateBackup  func(context.Context, string) error
 	RestoreBackup func(context.Context, string, secret.Bytes) (*service.Service, error)
+	GetProviderSettings func() (bool, error)
+	SaveEtherscanAPIKey func(string) error
+	DeleteEtherscanAPIKey func() error
 }
 
 type pendingDraft struct {
@@ -56,6 +59,9 @@ type App struct {
 	switchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	createBackup  func(context.Context, string) error
 	restoreBackup func(context.Context, string, secret.Bytes) (*service.Service, error)
+	getProviderSettings func() (bool, error)
+	saveEtherscanAPIKey func(string) error
+	deleteEtherscanAPIKey func() error
 	locked        bool
 	lockTimeout   time.Duration
 	lockTimer     *time.Timer
@@ -80,6 +86,8 @@ func NewWithDependencies(d Dependencies) *App {
 	return &App{
 		ctx: context.Background(), svc: d.Service, profile: p,
 		switchProfile: d.SwitchProfile, createBackup: d.CreateBackup, restoreBackup: d.RestoreBackup,
+		getProviderSettings: d.GetProviderSettings, saveEtherscanAPIKey: d.SaveEtherscanAPIKey,
+		deleteEtherscanAPIKey: d.DeleteEtherscanAPIKey,
 		locked: true, lockTimeout: defaultLockTimeout,
 		drafts: make(map[string]pendingDraft),
 	}
@@ -661,6 +669,49 @@ func (a *App) SetProfile(profile string) error {
 	a.profile = p
 	a.mu.Unlock()
 	a.Lock()
+	return nil
+}
+
+// GetProviderSettings exposes configuration state only; the credential never crosses the Wails boundary.
+func (a *App) GetProviderSettings() (ProviderSettingsDTO, error) {
+	if err := a.ready(); err != nil { return ProviderSettingsDTO{}, err }
+	if err := a.requireUnlocked(); err != nil { return ProviderSettingsDTO{}, err }
+	a.mu.Lock()
+	get := a.getProviderSettings
+	a.mu.Unlock()
+	if get == nil { return ProviderSettingsDTO{}, errors.New("provider_settings_unavailable") }
+	configured, err := get()
+	if err != nil { return ProviderSettingsDTO{}, errors.New("provider_settings_unavailable") }
+	return ProviderSettingsDTO{EtherscanAPIKeyConfigured: configured}, nil
+}
+
+// SaveEtherscanAPIKey stores the key in the OS-protected secret store. It is never returned to the frontend.
+func (a *App) SaveEtherscanAPIKey(key string) error {
+	if err := a.ready(); err != nil { return err }
+	if err := a.requireUnlocked(); err != nil { return err }
+	key = strings.TrimSpace(key)
+	if key == "" || len(key) > 256 || strings.ContainsAny(key, "\\r\\n\\t") {
+		return errors.New("invalid_input")
+	}
+	a.mu.Lock()
+	save := a.saveEtherscanAPIKey
+	a.mu.Unlock()
+	if save == nil { return errors.New("provider_settings_unavailable") }
+	if err := save(key); err != nil { return errors.New("provider_settings_unavailable") }
+	a.touch()
+	return nil
+}
+
+// DeleteEtherscanAPIKey removes the saved credential from the OS-protected secret store.
+func (a *App) DeleteEtherscanAPIKey() error {
+	if err := a.ready(); err != nil { return err }
+	if err := a.requireUnlocked(); err != nil { return err }
+	a.mu.Lock()
+	remove := a.deleteEtherscanAPIKey
+	a.mu.Unlock()
+	if remove == nil { return errors.New("provider_settings_unavailable") }
+	if err := remove(); err != nil { return errors.New("provider_settings_unavailable") }
+	a.touch()
 	return nil
 }
 
