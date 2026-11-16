@@ -20,6 +20,7 @@ func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.T
 	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC {
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("transaction is not a Bitcoin transaction for this wallet"))
 	}
+	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return ports.Replacement{}, err }
 	chain := s.chains[domain.NetworkBitcoin]
 	adapter, ok := chain.(ports.RBFAdapter)
 	if !ok { return ports.Replacement{}, domain.NewError(domain.CodeProviderUnavailable, errors.New("Bitcoin adapter does not support RBF")) }
@@ -50,6 +51,7 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC || !original.BroadcastAccepted {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("original transaction is not eligible for replacement"))
 	}
+	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return "", err }
 	chain := s.chains[domain.NetworkBitcoin]
 	adapter, ok := chain.(ports.RBFAdapter)
 	if !ok { return "", domain.NewError(domain.CodeProviderUnavailable, errors.New("Bitcoin adapter does not support RBF")) }
@@ -92,7 +94,18 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 // HasRBF reports whether a pending record can be offered for replacement.
 func (s *Service) HasRBF(ctx context.Context, walletID string, txid domain.TxID) bool {
 	p, err := s.store.PendingTxs().Get(ctx,txid)
-	if err != nil || p.WalletID != walletID || !p.BroadcastAccepted { return false }
+	if err != nil || p.WalletID != walletID || p.Asset != domain.BTC || p.Network != domain.NetworkBitcoin || !p.BroadcastAccepted { return false }
 	_, ok := s.chains[domain.NetworkBitcoin].(ports.RBFAdapter)
 	return ok
+}
+
+func (s *Service) rejectExistingReplacement(ctx context.Context, original domain.TxID) error {
+	pending, err := s.store.PendingTxs().List(ctx)
+	if err != nil { return err }
+	for _, item := range pending {
+		if item.ReplacesTxID == original {
+			return domain.NewError(domain.CodeDuplicateSend, errors.New("a replacement attempt for this Bitcoin transaction is already pending reconciliation"))
+		}
+	}
+	return nil
 }
