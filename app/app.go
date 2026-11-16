@@ -690,7 +690,7 @@ func (a *App) SaveEtherscanAPIKey(key string) error {
 	if err := a.ready(); err != nil { return err }
 	if err := a.requireUnlocked(); err != nil { return err }
 	key = strings.TrimSpace(key)
-	if key == "" || len(key) > 256 || strings.ContainsAny(key, "\\r\\n\\t") {
+	if key == "" || len(key) > 256 || strings.ContainsAny(key, "\r\n\t") {
 		return errors.New("invalid_input")
 	}
 	a.mu.Lock()
