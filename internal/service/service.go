@@ -510,8 +510,6 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	s.sendMu.Lock()
-	defer s.sendMu.Unlock()
 	if err := intent.Validate(); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -521,11 +519,6 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	}
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
-	// Resolve previously ambiguous sends before deciding whether a new send is safe.
-	_, _ = s.ReconcilePending(ctx)
-	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
-		return ports.Prepared{}, err
-	}
 	// Resolve previously ambiguous sends before deciding whether a new send is safe.
 	_, _ = s.ReconcilePending(ctx)
 	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
@@ -592,9 +585,6 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
 		return "", err
 	}
-	if err := s.rejectPendingBroadcast(ctx, walletID, info.Network); err != nil {
-		return "", err
-	}
 	chain := s.chains[info.Network]
 	if chain == nil {
 		return "", domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
@@ -642,13 +632,8 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 		// locally computed ID so the Wails facade can consume the draft and the
 		// UI can reconcile status instead of signing/broadcasting it again.
 		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
-		// The signed transaction is already durable in pending_tx. Return its
-		// locally computed ID so the Wails facade can consume the draft and the
-		// UI can reconcile status instead of signing/broadcasting it again.
-		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, contextError(err))
 	}
 	if txid != signed.TxID {
-		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 		return signed.TxID, domain.NewError(domain.CodeBroadcastUnknown, errors.New("broadcast transaction id differs from locally finalized id"))
 	}
 	pending.BroadcastAccepted = true
@@ -671,8 +656,6 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // remaining records from being checked. The signed Raw payload is never
 // logged or returned.
 func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
-	s.reconcileMu.Lock()
-	defer s.reconcileMu.Unlock()
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)
