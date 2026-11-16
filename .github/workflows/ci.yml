@@ -57,6 +57,14 @@ jobs:
       - name: Build Windows desktop executable
         if: matrix.os == 'windows-latest'
         run: wails build -clean -platform windows/amd64
+      - name: Upload Windows smoke-test executable
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wallet-windows-amd64
+          path: build/bin/*.exe
+          if-no-files-found: error
+          retention-days: 7
 
   lint:
     runs-on: ubuntu-latest
@@ -78,7 +86,8 @@ jobs:
   # берутся из package.json: Dev 8 добавляет typecheck (vue-tsc), lint
   # (ESLint), test (Vitest) и build; отсутствующие пропускаются (--if-present).
   frontend:
-    runs-on: ubuntu-latest
+    # Playwright 1.56 supports Ubuntu 24.04; ubuntu-latest may advance ahead of its browser packages.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -93,4 +102,8 @@ jobs:
       - run: npm run typecheck --if-present
       - run: npm run lint --if-present
       - run: npm test --if-present
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright smoke tests
+        run: npm run e2e
       - run: npm run build --if-present
