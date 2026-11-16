@@ -111,7 +111,8 @@ func ParsePoint(b []byte) (Point, error) {
 		if modMul(y, y).Cmp(ySquared(x)) != 0 {
 			return Point{}, ErrInvalidPoint
 		}
-		if byte(y.Bit(0)&1) //nolint:gosec // Bit(0) is guaranteed to be 0 or 1. != b[0]&1 {
+		//nolint:gosec // Bit(0) is guaranteed to be 0 or 1.
+		if byte(y.Bit(0)&1) != b[0]&1 {
 			y.Sub(curveP, y)
 		}
 		return Point{x: x, y: y}, nil
