@@ -584,8 +584,9 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	}
 	txid, err := a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	a.mu.Lock()
-	if err != nil && txid == "" {
-		// Failures before a signed transaction is persisted are safe to retry.
+	if err != nil && txid == "" && domain.CodeOf(err) != domain.CodeDuplicateSend {
+		// Failures before persistence are safe to retry, except when another
+		// unresolved transaction makes this draft stale.
 		if current, exists := a.drafts[draftID]; exists {
 			current.inFlight = false
 			a.drafts[draftID] = current
