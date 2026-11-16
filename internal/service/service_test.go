@@ -251,6 +251,30 @@ func TestConfirmSendSuccessKeepsPendingHistoryAndRecoveryPayloadForRBF(t *testin
 	}
 }
 
+func TestRefreshWalletPersistsTRXFeeBalance(t *testing.T) {
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network: domain.NetworkTron,
+		Snapshot: ports.Snapshot{
+			Asset: domain.TRX,
+			Balance: domain.Balance{Confirmed: domain.AmountFromUint64(25_000_000)},
+		},
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+
+	snapshot, err := svc.RefreshWallet(context.Background(), wallet.ID, domain.TRX)
+	if err != nil {
+		t.Fatalf("RefreshWallet(TRX): %v", err)
+	}
+	if snapshot.Asset != domain.TRX || !snapshot.Balance.Confirmed.Equal(domain.AmountFromUint64(25_000_000)) {
+		t.Fatalf("unexpected TRX snapshot: %+v", snapshot)
+	}
+	record, err := st.Balances().Get(context.Background(), wallet.ID, domain.TRX)
+	if err != nil || !record.Balance.Confirmed.Equal(domain.AmountFromUint64(25_000_000)) {
+		t.Fatalf("stored TRX balance = (%+v, %v)", record, err)
+	}
+}
+
 func TestRefreshWalletPersistsSnapshotAtomically(t *testing.T) {
 	address := "bc1qexample"
 	snapshot := ports.Snapshot{
