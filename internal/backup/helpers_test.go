@@ -19,6 +19,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/store"
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
 var ctx = context.Background()
@@ -60,6 +61,7 @@ func newService(t *testing.T, dir string, db Snapshotter, mut ...func(*Config)) 
 	t.Helper()
 	cfg := Config{
 		DataDir: dir, DB: db, CheckKeystoreFile: checkKS, MaxSchemaVersion: testSchema,
+		VerifyKeystorePassword: func(context.Context, string, secret.Bytes) error { return nil },
 		Now: func() time.Time { return time.Date(2026, 11, 15, 10, 30, 0, 0, time.UTC) },
 	}
 	for _, m := range mut {

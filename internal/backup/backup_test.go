@@ -18,6 +18,7 @@ import (
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/store"
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
 func bigAmount(t *testing.T, exp int) domain.Amount {
@@ -68,7 +69,7 @@ func TestRoundTripOnEmptyDirectory(t *testing.T) {
 	}
 
 	restore := newService(t, dst, db, func(c *Config) { c.MaxSchemaVersion = store.SchemaVersion() })
-	rr, err := restore.Restore(ctx, res.Path)
+	rr, err := restore.Restore(ctx, res.Path, secret.Bytes{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestRestoreOverExistingDataKeepsPrevious(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dst, "wallet.db-wal"), []byte("old-wal"), 0o600)
 	writeKeystore(t, dst, map[string]string{"old.json": "-old"})
 
-	rr, err := newService(t, dst, db, func(c *Config) { c.MaxSchemaVersion = store.SchemaVersion() }).Restore(ctx, res.Path)
+	rr, err := newService(t, dst, db, func(c *Config) { c.MaxSchemaVersion = store.SchemaVersion() }).Restore(ctx, res.Path, secret.Bytes{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +313,7 @@ func TestRestoreRejectsBrokenArchivesAndKeepsData(t *testing.T) {
 			svc, dir, before := setup(t)
 			in := good(t, t.TempDir())
 			corrupt(t, in)
-			_, err := svc.Restore(ctx, in)
+			_, err := svc.Restore(ctx, in, secret.Bytes{})
 			wantInvalid(t, err)
 			sameTree(t, tree(t, dir), before)
 		})
@@ -373,7 +374,7 @@ func TestRestoreRejectsTamperedContent(t *testing.T) {
 			before := tree(t, dir)
 			in := filepath.Join(t.TempDir(), "in.zip")
 			craft(t, in, es)
-			_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(ctx, in)
+			_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(ctx, in, secret.Bytes{})
 			wantInvalid(t, err)
 			sameTree(t, tree(t, dir), before)
 		})
@@ -408,7 +409,7 @@ func TestRestoreBlocksZipSlipLinksAndOddEntries(t *testing.T) {
 			before := tree(t, parent)
 			in := filepath.Join(t.TempDir(), "in.zip")
 			craft(t, in, append(goodEntries(t, nil), e))
-			_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(ctx, in)
+			_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(ctx, in, secret.Bytes{})
 			wantInvalid(t, err)
 			sameTree(t, tree(t, parent), before) // ничего не появилось ни внутри, ни рядом
 		})
@@ -420,7 +421,7 @@ func TestRestoreEnforcesLimits(t *testing.T) {
 		dir := t.TempDir()
 		in := filepath.Join(t.TempDir(), "in.zip")
 		craft(t, in, entries)
-		_, err := newService(t, dir, fakeDB{version: testSchema}, func(c *Config) { c.Limits = lim }).Restore(ctx, in)
+		_, err := newService(t, dir, fakeDB{version: testSchema}, func(c *Config) { c.Limits = lim }).Restore(ctx, in, secret.Bytes{})
 		return err
 	}
 	ks := map[string]string{"a.json": "-a", "b.json": "-b", "c.json": "-c"}
@@ -453,7 +454,7 @@ func TestRestoreCanceledBeforeSwapKeepsData(t *testing.T) {
 	craft(t, in, goodEntries(t, map[string]string{"a.json": "-a"}))
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
-	_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(cctx, in)
+	_, err := newService(t, dir, fakeDB{version: testSchema}).Restore(cctx, in, secret.Bytes{})
 	if !errors.Is(err, context.Canceled) || domain.CodeOf(err) != domain.CodeCanceled {
 		t.Fatalf("err = %v", err)
 	}
@@ -481,7 +482,7 @@ func TestSwapRollsBackOnFailureAtEveryStep(t *testing.T) {
 				}
 				return os.Rename(o, nw)
 			}
-			if _, err := svc.Restore(ctx, in); err == nil {
+			if _, err := svc.Restore(ctx, in, secret.Bytes{}); err == nil {
 				t.Fatal("expected error")
 			}
 			sameTree(t, tree(t, dir), before)
@@ -539,7 +540,7 @@ func TestBackupWhileWriting(t *testing.T) {
 
 	for i, a := range archives {
 		dst := t.TempDir()
-		if _, err := newService(t, dst, db, func(c *Config) { c.MaxSchemaVersion = store.SchemaVersion() }).Restore(ctx, a); err != nil {
+		if _, err := newService(t, dst, db, func(c *Config) { c.MaxSchemaVersion = store.SchemaVersion() }).Restore(ctx, a, secret.Bytes{}); err != nil {
 			t.Fatalf("restore %d: %v", i, err)
 		}
 		rs := openStore(t, dst)

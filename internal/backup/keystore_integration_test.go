@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/hd/hdtest"
 	"github.com/24DSO-lab/wallet/internal/keystore"
 	"github.com/24DSO-lab/wallet/internal/ports"
+	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/store"
 )
@@ -51,6 +53,10 @@ func TestRoundTripWithRealKeystore(t *testing.T) {
 	real := func(c *Config) {
 		c.CheckKeystoreFile = keystore.CheckFile
 		c.MaxSchemaVersion = store.SchemaVersion()
+		c.VerifyKeystorePassword = func(ctx context.Context, dir string, password secret.Bytes) error {
+			staged := newKS(filepath.Dir(dir))
+			return staged.Verify(ctx, ports.Secrets{Password: password})
+		}
 	}
 	res, err := newService(t, src, db, real).Create(ctx, dest)
 	if err != nil {
@@ -59,7 +65,9 @@ func TestRoundTripWithRealKeystore(t *testing.T) {
 	if res.Files != 2 { // БД и один keystore-файл
 		t.Errorf("Files = %d", res.Files)
 	}
-	if _, err := newService(t, dst, db, real).Restore(ctx, res.Path); err != nil {
+	passwordBytes := secret.FromString(password)
+	defer passwordBytes.Wipe()
+	if _, err := newService(t, dst, db, real).Restore(ctx, res.Path, passwordBytes); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
 

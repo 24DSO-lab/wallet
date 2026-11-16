@@ -26,7 +26,7 @@ type RestoreResult struct {
 
 // Restore восстанавливает рабочие данные из архива. Рядом с архивом должен
 // лежать файл <архив>.sha256. База должна быть закрыта (см. doc.go).
-func (s *Service) Restore(ctx context.Context, archivePath string, password ...secret.Bytes) (res RestoreResult, err error) {
+func (s *Service) Restore(ctx context.Context, archivePath string, password secret.Bytes) (res RestoreResult, err error) {
 	defer func() { err = mapCtx(err) }()
 	if err := ctx.Err(); err != nil {
 		return RestoreResult{}, err
@@ -115,10 +115,11 @@ func (s *Service) Restore(ctx context.Context, archivePath string, password ...s
 	if schema != man.SchemaVersion {
 		return RestoreResult{}, invalidf("database schema %d differs from the manifest (%d)", schema, man.SchemaVersion)
 	}
-	if s.cfg.VerifyKeystorePassword != nil && len(password) > 0 {
-		if err := s.cfg.VerifyKeystorePassword(ctx, stagedKS, password[0]); err != nil {
-			return RestoreResult{}, err
-		}
+	if s.cfg.VerifyKeystorePassword == nil {
+		return RestoreResult{}, errors.New("backup: keystore password verification is required")
+	}
+	if err := s.cfg.VerifyKeystorePassword(ctx, stagedKS, password); err != nil {
+		return RestoreResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return RestoreResult{}, err // последняя точка отмены: дальше идёт замена
