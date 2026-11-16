@@ -469,18 +469,18 @@ func TestFinalizeBroadcastStatus(t *testing.T) {
 
 	// Status.
 	idStr := domain.TxID(s.TxID)
-	check := func(info TxInfo, want domain.TxStatus) {
+	check := func(info TxInfo, want domain.TxStatus, known bool) {
 		t.Helper()
 		f.info[string(idStr)] = info
 		st, err := a.Status(ctx, idStr)
-		if err != nil || st.State != want {
-			t.Errorf("status %+v: got %v %v, want %v", info, st.State, err, want)
+		if err != nil || st.State != want || st.Known != known {
+			t.Errorf("status %+v: got %+v %v, want state=%v known=%v", info, st, err, want, known)
 		}
 	}
-	check(TxInfo{}, domain.TxPending)
-	check(TxInfo{Found: true, Success: true, BlockNumber: 100, CurrentTip: 100}, domain.TxPending)
-	check(TxInfo{Found: true, Success: true, BlockNumber: 100, CurrentTip: 100 + SolidityDepth - 1}, domain.TxConfirmed)
-	check(TxInfo{Found: true, Success: false, BlockNumber: 100, CurrentTip: 101}, domain.TxFailed)
+	check(TxInfo{}, domain.TxPending, false)
+	check(TxInfo{Found: true, Success: true, BlockNumber: 100, CurrentTip: 100}, domain.TxPending, true)
+	check(TxInfo{Found: true, Success: true, BlockNumber: 100, CurrentTip: 100 + SolidityDepth - 1}, domain.TxConfirmed, true)
+	check(TxInfo{Found: true, Success: false, BlockNumber: 100, CurrentTip: 101}, domain.TxFailed, true)
 	if _, err := a.Status(ctx, "zz"); err == nil {
 		t.Error("bad id accepted")
 	}
