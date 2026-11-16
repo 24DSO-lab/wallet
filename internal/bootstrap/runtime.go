@@ -128,8 +128,9 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		return profileRuntime{}, err
 	}
 	indexClient, err := provider.New(provider.Options{
-		Endpoints: []string{"https://api.etherscan.io/v2/api"},
-		Redactor:  logging.NewRedactor(r.keys.Values()...),
+		Endpoints:   []string{"https://api.etherscan.io/v2/api"},
+		MinInterval: 350 * time.Millisecond, // Etherscan free tier: at most 3 requests/second.
+		Redactor:    logging.NewRedactor(r.keys.Values()...),
 	})
 	if err != nil {
 		return profileRuntime{}, fmt.Errorf("configure Ethereum indexer: %w", err)
@@ -153,9 +154,10 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		tronHeader.Set("TRON-PRO-API-KEY", key)
 	}
 	tronClient, err := provider.New(provider.Options{
-		Endpoints: cfg.Providers[config.ProviderTron].All(),
-		Header:    tronHeader,
-		Redactor:  logging.NewRedactor(r.keys.Values()...),
+		Endpoints:   cfg.Providers[config.ProviderTron].All(),
+		Header:      tronHeader,
+		MinInterval: 150 * time.Millisecond, // Conservative TronGrid request pacing.
+		Redactor:    logging.NewRedactor(r.keys.Values()...),
 	})
 	if err != nil {
 		return profileRuntime{}, fmt.Errorf("configure TRON provider: %w", err)
