@@ -3,6 +3,8 @@ package app
 import (
 	"fmt"
 	"testing"
+
+	"github.com/24DSO-lab/wallet/internal/domain"
 )
 
 func TestRandomChallengePositions(t *testing.T) {
@@ -63,4 +65,34 @@ func TestKeepAliveStartsIdleTimer(t *testing.T) {
 		t.Fatal("foreground activity must start the idle timer")
 	}
 	a.Lock()
+}
+
+func TestTransactionExplorerURLUsesActiveProfile(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile domain.Profile
+		asset   domain.Asset
+		want    string
+	}{
+		{"Bitcoin testnet", domain.ProfileTest, domain.BTC, "https://mempool.space/testnet/tx/abc123"},
+		{"Bitcoin mainnet", domain.ProfileMain, domain.BTC, "https://mempool.space/tx/abc123"},
+		{"Ethereum Sepolia", domain.ProfileTest, domain.USDC, "https://sepolia.etherscan.io/tx/abc123"},
+		{"Ethereum mainnet", domain.ProfileMain, domain.ETH, "https://etherscan.io/tx/abc123"},
+		{"TRON Nile", domain.ProfileTest, domain.USDT, "https://nile.tronscan.org/#/transaction/abc123"},
+		{"TRON mainnet", domain.ProfileMain, domain.USDT, "https://tronscan.org/#/transaction/abc123"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := transactionExplorerURL(tt.profile, domain.Tx{Asset: tt.asset, TxID: "abc123"})
+			if got != tt.want {
+				t.Fatalf("transactionExplorerURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTransactionExplorerURLRejectsMissingTransactionID(t *testing.T) {
+	if got := transactionExplorerURL(domain.ProfileTest, domain.Tx{Asset: domain.BTC}); got != "" {
+		t.Fatalf("expected empty URL for missing txid, got %q", got)
+	}
 }
