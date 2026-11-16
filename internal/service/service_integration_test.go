@@ -145,6 +145,10 @@ func TestServiceWalletReadImportPasswordAndSettingsUseCases(t *testing.T) {
 	if err != nil || address.Address != wallet.ETHAddress || address.Network != domain.NetworkEthereum {
 		t.Fatalf("GetReceiveAddress(ETH) = (%+v, %v), want wallet ETH address", address, err)
 	}
+	trxAddress, err := svc.GetReceiveAddress(ctx, wallet.ID, domain.TRX)
+	if err != nil || trxAddress.Address != wallet.TronAddress || trxAddress.Network != domain.NetworkTron {
+		t.Fatalf("GetReceiveAddress(TRX) = (%+v, %v), want wallet TRON address for fee funding", trxAddress, err)
+	}
 	balances, err := svc.GetBalances(ctx, wallet.ID)
 	if err != nil || len(balances) != 0 {
 		t.Fatalf("GetBalances() = (%v, %v), want empty cache", balances, err)
