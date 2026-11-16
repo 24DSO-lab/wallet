@@ -83,7 +83,7 @@ func (p Point) Equal(q Point) bool {
 // Compressed возвращает сжатый ключ в 33 байта (02 или 03, затем X).
 func (p Point) Compressed() [PubKeyCompressedLen]byte {
 	var out [PubKeyCompressedLen]byte
-	out[0] = 0x02 | byte(p.y.Bit(0)&1)
+	out[0] = 0x02 | byte(p.y.Bit(0)&1) //nolint:gosec // Bit(0) is guaranteed to be 0 or 1.
 	p.x.FillBytes(out[1:])
 	return out
 }
@@ -111,7 +111,7 @@ func ParsePoint(b []byte) (Point, error) {
 		if modMul(y, y).Cmp(ySquared(x)) != 0 {
 			return Point{}, ErrInvalidPoint
 		}
-		if byte(y.Bit(0)&1) != b[0]&1 {
+		if byte(y.Bit(0)&1) //nolint:gosec // Bit(0) is guaranteed to be 0 or 1. != b[0]&1 {
 			y.Sub(curveP, y)
 		}
 		return Point{x: x, y: y}, nil
@@ -286,7 +286,7 @@ func Sign(priv, digest []byte) (Signature, error) {
 			// X(R) >= n: вероятность 2^-128, recid был бы 2 или 3.
 			return Signature{}, ErrRecoveryID
 		}
-		recID := byte(rp.y.Bit(0)&1)
+		recID := byte(rp.y.Bit(0)&1) //nolint:gosec // Bit(0) is guaranteed to be 0 or 1.
 		if s.Cmp(halfN) > 0 {
 			s.Sub(curveN, s)
 			recID ^= 1
