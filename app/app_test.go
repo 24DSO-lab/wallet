@@ -8,6 +8,24 @@ import (
 	"github.com/24DSO-lab/wallet/internal/service"
 )
 
+func TestSetProfileRejectsMainnetUntilAcceptanceGatesPass(t *testing.T) {
+	called := false
+	a := NewWithDependencies(Dependencies{
+		Profile: domain.ProfileTest,
+		SwitchProfile: func(context.Context, domain.Profile) (*service.Service, error) {
+			called = true
+			return nil, nil
+		},
+	})
+
+	if err := a.SetProfile(string(domain.ProfileMain)); err == nil || err.Error() != string(domain.CodeMainnetDisabled) {
+		t.Fatalf("SetProfile(main) error = %v, want %s", err, domain.CodeMainnetDisabled)
+	}
+	if called {
+		t.Fatal("mainnet runtime was constructed before acceptance gates passed")
+	}
+}
+
 func TestRandomChallengePositions(t *testing.T) {
 	for _, wordCount := range []int{12, 24} {
 		t.Run(fmt.Sprintf("words-%d", wordCount), func(t *testing.T) {
