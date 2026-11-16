@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { api } from './api/client'
 import type { Asset, Profile, Wallet, Tx, Quote } from './api/types'
