@@ -591,25 +591,25 @@ func (a *App) SetLockTimeout(minutes int) error {
 
 // RestoreBackup opens a native file picker, restores the selected archive,
 // then verifies its keystore password before unlocking the restored profile.
-func (a *App) RestoreBackup(password string) error {
+func (a *App) RestoreBackup(password string) (bool, error) {
 	if err := a.ready(); err != nil {
-		return err
+		return false, err
 	}
 	if err := a.requireUnlocked(); err != nil {
 		return err
 	}
 	if a.restoreBackup == nil {
-		return errors.New("restore_not_configured")
+		return false, errors.New("restore_not_configured")
 	}
 	path, err := wailsruntime.OpenFileDialog(a.context(), wailsruntime.OpenDialogOptions{
 		Title: "Restore wallet backup",
 		Filters: []wailsruntime.FileFilter{{DisplayName: "Wallet backup (*.zip)", Pattern: "*.zip"}},
 	})
 	if err != nil {
-		return safeError(err)
+		return false, safeError(err)
 	}
 	if path == "" {
-		return nil
+		return false, nil
 	}
 
 	a.Lock()
@@ -618,10 +618,10 @@ func (a *App) RestoreBackup(password string) error {
 	a.svc = restored
 	a.mu.Unlock()
 	if restoreErr != nil {
-		return safeError(restoreErr)
+		return false, safeError(restoreErr)
 	}
 	if restored == nil {
-		return errors.New("restore_failed")
+		return false, errors.New("restore_failed")
 	}
 	if err := restored.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
 		return safeError(err)
@@ -630,7 +630,7 @@ func (a *App) RestoreBackup(password string) error {
 	a.locked = false
 	a.mu.Unlock()
 	a.touch()
-	return nil
+	return true, nil
 }
 
 func (a *App) CreateBackup(password string) error {
