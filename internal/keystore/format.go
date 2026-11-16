@@ -65,7 +65,7 @@ func (h header) marshal() []byte {
 	b = append(b, formatVersion, kdfArgon2id, cipherAESGCM)
 	b = binary.BigEndian.AppendUint32(b, h.params.Time)
 	b = binary.BigEndian.AppendUint32(b, h.params.MemoryKiB)
-	b = append(b, h.params.Threads, byte(len(h.id)) //nolint:gosec // sealFile validates the wallet ID length before marshal.)
+	b = append(b, h.params.Threads, byte(len(h.id))) //nolint:gosec // sealFile validates the wallet ID length before marshal.
 	b = append(b, h.id...)
 	b = append(b, h.salt[:]...)
 	b = append(b, h.nonce[:]...)
@@ -139,7 +139,7 @@ func sealFile(h header, mnemonic []byte, password secret.Bytes) ([]byte, error) 
 	}
 	payload := make([]byte, payloadLen)
 	defer clear(payload)
-	binary.BigEndian.PutUint16(payload, uint16(len(mnemonic)) //nolint:gosec // The length is bounded by payloadLen-2 (254) above.)
+	binary.BigEndian.PutUint16(payload, uint16(len(mnemonic))) //nolint:gosec // The length is bounded by payloadLen-2 (254) above.
 	copy(payload[2:], mnemonic)
 
 	hb := h.marshal()
