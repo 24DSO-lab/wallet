@@ -131,11 +131,19 @@ func (a *App) requireUnlocked() error {
 		a.pendingChallengePositions = nil
 		a.pendingWalletExpires = time.Time{}
 	}
-	if a.lockTimer == nil {
-		a.lockTimer = time.AfterFunc(a.lockTimeout, a.Lock)
-	} else {
-		a.lockTimer.Reset(a.lockTimeout)
+	return nil
+}
+
+// KeepAlive records explicit foreground user activity. Background refreshes
+// and polling only call requireUnlocked and therefore cannot postpone locking.
+func (a *App) KeepAlive() error {
+	if err := a.ready(); err != nil {
+		return err
 	}
+	if err := a.requireUnlocked(); err != nil {
+		return err
+	}
+	a.touch()
 	return nil
 }
 
