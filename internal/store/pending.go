@@ -26,8 +26,8 @@ func scanPending(r rowScanner) (ports.PendingTx, error) {
 	return p, nil
 }
 
-// Put сохраняет подписанную транзакцию до подтверждения сетью. Повторный Put
-// того же TxID не создаёт дубль и не сдвигает исходное CreatedAt.
+// Put сохраняет подписанную транзакцию до подтверждения в блоке. Повторный Put
+// того же TxID обновляет RBF metadata, но не сдвигает исходное CreatedAt.
 func (r pendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 	switch {
 	case p.TxID == "":
