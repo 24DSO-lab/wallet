@@ -8,6 +8,10 @@ import (
 )
 
 // DTOs are the only data structures serialized across the Wails boundary.
+type ProviderSettingsDTO struct {
+	EtherscanAPIKeyConfigured bool `json:"etherscanAPIKeyConfigured"`
+}
+
 type SessionDTO struct {
 	Locked  bool   `json:"locked"`
 	Profile string `json:"profile"`
