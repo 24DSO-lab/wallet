@@ -221,7 +221,7 @@ func (r *Runtime) createBackup(ctx context.Context) error {
 	if !ok || current.backup == nil {
 		return errors.New("backup service is unavailable")
 	}
-	destination := filepath.Join(filepath.Dir(filepath.Join(r.baseDir, string(r.active))), "backups")
+	destination := filepath.Join(r.baseDir, string(r.active), "backups")
 	_, err := current.backup.Create(ctx, destination)
 	return err
 }
