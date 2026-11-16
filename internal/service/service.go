@@ -358,7 +358,7 @@ func (s *Service) ChangePassword(ctx context.Context, oldPassword, newPassword s
 // Bitcoin addresses must first be discovered by RefreshWallet.
 func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset domain.Asset) (domain.Address, error) {
 	info, ok := asset.Info()
-	if !ok || !asset.IsWalletAsset() {
+	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
 		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
 	}
 	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
@@ -427,7 +427,7 @@ func (s *Service) GetHistory(ctx context.Context, walletID string, asset domain.
 // validated by the network adapter.
 func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset domain.Asset) (ports.Snapshot, error) {
 	info, ok := asset.Info()
-	if !ok || !asset.IsWalletAsset() {
+	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
 		return ports.Snapshot{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
 	}
 	wallet, err := s.store.Wallets().Get(ctx, walletID)
