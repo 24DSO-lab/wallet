@@ -168,7 +168,8 @@ func fillSegment(mem []block, pass, slice, lane, lanes, laneLen, segLen, memBloc
 		if pass == 0 && slice == 0 {
 			refLane = lane
 		}
-		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd & 0xffffffff) //nolint:gosec // Argon2 index function uses the low 32 bits of pseudo-random output., laneLen, segLen)
+		//nolint:gosec // Argon2 index function uses the low 32 bits of pseudo-random output.
+		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd&0xffffffff), laneLen, segLen)
 		compress(&mem[cur], &mem[prev], &mem[refLane*laneLen+refIdx], pass > 0)
 	}
 }
