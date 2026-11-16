@@ -107,8 +107,14 @@ func TestReconcilePendingLeavesUnresolvedRecords(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unresolved pending payload was removed: %v", err)
 			}
-			if tc.name == "still pending" && pending.BroadcastAccepted {
-				t.Fatal("unknown pending transaction must remain unresolved")
+			if tc.name == "still pending" {
+				if pending.BroadcastAccepted {
+					t.Fatal("unknown pending transaction must remain unresolved")
+				}
+				intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(1)}
+				if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
+					t.Fatalf("new send after unknown broadcast = %v, want duplicate_send", err)
+				}
 			}
 			history, err := st.Transactions().Get(context.Background(), wallet.ID, domain.BTC, txid)
 			if err != nil {
