@@ -495,6 +495,9 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 			return nil, err
 		}
 	}
+	// Refresh the status of locally retained signed transactions before
+	// returning cached history. Provider failures do not hide existing history.
+	_, _ = a.svc.ReconcilePending(a.context())
 	txs, err := a.svc.GetHistory(a.context(), id, domainAsset)
 	if err != nil {
 		return nil, safeError(err)
@@ -584,13 +587,17 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	}
 	txid, err := a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	a.mu.Lock()
-	if err != nil {
-		// Release the draft on failure so the user may retry confirmation.
+	if err != nil && txid == "" && domain.CodeOf(err) != domain.CodeDuplicateSend {
+		// Failures before persistence are safe to retry, except when another
+		// unresolved transaction makes this draft stale.
 		if current, exists := a.drafts[draftID]; exists {
 			current.inFlight = false
 			a.drafts[draftID] = current
 		}
 	} else {
+		// A non-empty txid means the signed payload is durable in pending_tx.
+		// Never reuse this draft: reconciliation, not another confirmation,
+		// determines whether the network accepted the transaction.
 		delete(a.drafts, draftID)
 	}
 	a.mu.Unlock()

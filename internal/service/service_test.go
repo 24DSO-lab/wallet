@@ -119,9 +119,18 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	wallet := createTestWallet(t, svc)
 	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(100)}
 	prepared := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{9}}
-	_, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
+	gotTxID, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets())
 	if err == nil {
 		t.Fatal("expected broadcast error")
+	}
+	if gotTxID != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ambiguous broadcast = (%q, %v), want persisted txid and broadcast_unknown", gotTxID, err)
+	}
+	if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("PrepareSend after ambiguous broadcast = %v, want duplicate_send", err)
+	}
+	if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, prepared, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("second ConfirmSend after ambiguous broadcast = %v, want duplicate_send", err)
 	}
 	pending, err := st.PendingTxs().Get(context.Background(), txid)
 	if err != nil {
@@ -136,6 +145,45 @@ func TestConfirmSendPersistsBeforeBroadcastAndRetainsAmbiguousPending(t *testing
 	}
 	if history[0].TxID != txid || history[0].Status != domain.TxPending || history[0].Direction != domain.DirectionOut || history[0].Counterparty != intent.To {
 		t.Fatalf("unexpected pending history record: %+v", history[0])
+	}
+}
+
+
+func TestPrepareSendReconcilesConfirmedAmbiguousBroadcast(t *testing.T) {
+	const txid domain.TxID = "confirmed-after-ambiguous-broadcast"
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network:  domain.NetworkBitcoin,
+		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
+		Signed:   ports.Signed{Network: domain.NetworkBitcoin, TxID: txid, Raw: []byte{7, 8, 9}},
+		Status:   ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 100, Confirmations: 1},
+		Failures: map[testkit.ChainOperation]error{
+			testkit.ChainBroadcast: errors.New("connection closed after submit"),
+		},
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+	intent := domain.SendIntent{
+		Wallet: wallet.PublicWallet, Asset: domain.BTC,
+		To: "bc1qrecipient", Amount: domain.AmountFromUint64(100),
+	}
+	initial := ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC, Draft: []byte{1}}
+	if got, err := svc.ConfirmSend(context.Background(), wallet.ID, intent, initial, testSecrets()); got != txid || domain.CodeOf(err) != domain.CodeBroadcastUnknown {
+		t.Fatalf("ConfirmSend = (%q, %v), want persisted txid and broadcast_unknown", got, err)
+	}
+
+	prepared, err := svc.PrepareSend(context.Background(), intent)
+	if err != nil {
+		t.Fatalf("PrepareSend after confirmed reconciliation: %v", err)
+	}
+	if prepared.Network != domain.NetworkBitcoin || prepared.Asset != domain.BTC {
+		t.Fatalf("unexpected replacement quote: %+v", prepared)
+	}
+	if _, err := st.PendingTxs().Get(context.Background(), txid); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("confirmed pending payload was not removed: %v", err)
+	}
+	history, err := st.Transactions().Get(context.Background(), wallet.ID, domain.BTC, txid)
+	if err != nil || history.Status != domain.TxConfirmed || history.BlockHeight != 100 {
+		t.Fatalf("history was not reconciled: %+v, %v", history, err)
 	}
 }
 
