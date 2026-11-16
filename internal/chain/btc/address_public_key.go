@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	//nolint:gosec,staticcheck // Bitcoin HASH160 mandates RIPEMD-160; it is not used as a password hash.
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
@@ -36,7 +37,7 @@ func AddressFromPublicKey(profile domain.Profile, uncompressedPub []byte) (strin
 
 	compressed := point.Compressed()
 	sha := sha256.Sum256(compressed[:])
-	ripemd := ripemd160.New()
+	ripemd := ripemd160.New() //nolint:gosec // Required by the Bitcoin P2WPKH address specification.
 	if _, err := ripemd.Write(sha[:]); err != nil {
 		return "", fmt.Errorf("btc: hash public key: %w", err)
 	}

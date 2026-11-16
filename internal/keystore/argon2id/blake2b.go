@@ -25,8 +25,11 @@ var blakeSigma = [10][16]uint8{
 
 // blake2b возвращает BLAKE2b без ключа с длиной результата size (1..64).
 func blake2b(size int, parts ...[]byte) []byte {
+	if size < 1 || size > 64 {
+		panic("argon2id: invalid BLAKE2b digest size")
+	}
 	h := blakeIV
-	h[0] ^= 0x01010000 ^ uint64(size)
+	h[0] ^= 0x01010000 ^ uint64(size) //nolint:gosec // size is constrained to the BLAKE2b range 1..64 above.
 
 	var data []byte
 	for _, p := range parts {
