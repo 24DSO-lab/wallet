@@ -116,6 +116,10 @@ type Signed struct {
 // TxStatus это состояние транзакции в сети.
 type TxStatus struct {
 	State         domain.TxStatus
+	// Known means the queried node recognizes this transaction (mempool or
+	// block). Pending with Known=false is an unresolved broadcast, not proof
+	// of acceptance; callers must not release duplicate-send protection.
+	Known         bool
 	BlockHeight   uint64
 	Confirmations uint32
 }
