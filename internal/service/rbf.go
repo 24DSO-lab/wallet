@@ -17,8 +17,8 @@ func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.T
 	if err != nil { return ports.Replacement{}, err }
 	original, err := s.store.PendingTxs().Get(ctx, txid)
 	if err != nil { return ports.Replacement{}, err }
-	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC {
-		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("transaction is not a Bitcoin transaction for this wallet"))
+	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC || !original.BroadcastAccepted {
+		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("transaction is not an accepted Bitcoin transaction for this wallet"))
 	}
 	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return ports.Replacement{}, err }
 	chain := s.chains[domain.NetworkBitcoin]
@@ -95,8 +95,10 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 func (s *Service) HasRBF(ctx context.Context, walletID string, txid domain.TxID) bool {
 	p, err := s.store.PendingTxs().Get(ctx,txid)
 	if err != nil || p.WalletID != walletID || p.Asset != domain.BTC || p.Network != domain.NetworkBitcoin || !p.BroadcastAccepted { return false }
-	_, ok := s.chains[domain.NetworkBitcoin].(ports.RBFAdapter)
-	return ok
+	if _, ok := s.chains[domain.NetworkBitcoin].(ports.RBFAdapter); !ok {
+		return false
+	}
+	return s.rejectExistingReplacement(ctx, p.TxID) == nil
 }
 
 func (s *Service) rejectExistingReplacement(ctx context.Context, original domain.TxID) error {
