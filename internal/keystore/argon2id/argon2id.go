@@ -85,7 +85,7 @@ func initialHash(password, salt, secret, ad []byte, p, keyLen, m, t uint32) []by
 	u32 := func(v uint32) []byte { return binary.LittleEndian.AppendUint32(nil, v) }
 	parts = append(parts, u32(p), u32(keyLen), u32(m), u32(t), u32(version), u32(typeArgon2id))
 	for _, f := range [][]byte{password, salt, secret, ad} {
-		parts = append(parts, u32(uint32(len(f))) //nolint:gosec // Key rejects inputs larger than the Argon2 uint32 length fields., f)
+		parts = append(parts, u32(uint32(len(f))), f) //nolint:gosec // Key rejects inputs larger than the Argon2 uint32 length fields.
 	}
 	return blake2b(64, parts...)
 }
