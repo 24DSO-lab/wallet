@@ -101,3 +101,36 @@ func TestRestoreVerifiesPasswordBeforeReplacingWorkingData(t *testing.T) {
 	}
 	sameTree(t, tree(t, dir), before)
 }
+
+func TestRestoreDoesNotSkipPasswordVerificationForEmptyPassword(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "keystore"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wallet.db"), fakeDBBytes(testSchema), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeKeystore(t, dir, map[string]string{"keep.json": "-keep"})
+	before := tree(t, dir)
+	archive := filepath.Join(t.TempDir(), "backup.zip")
+	craft(t, archive, goodEntries(t, map[string]string{"restored.json": "-restored"}))
+
+	verificationCalled := false
+	wantErr := errors.New("password rejected")
+	svc := newService(t, dir, fakeDB{version: testSchema}, func(c *Config) {
+		c.VerifyKeystorePassword = func(_ context.Context, _ string, password secret.Bytes) error {
+			verificationCalled = true
+			if !password.IsEmpty() {
+				t.Fatal("test expected an empty password")
+			}
+			return wantErr
+		}
+	})
+	if _, err := svc.Restore(ctx, archive, secret.Bytes{}); !errors.Is(err, wantErr) {
+		t.Fatalf("Restore error = %v, want password rejection", err)
+	}
+	if !verificationCalled {
+		t.Fatal("empty password bypassed keystore verification")
+	}
+	sameTree(t, tree(t, dir), before)
+}
