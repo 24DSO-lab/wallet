@@ -17,7 +17,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4174 --strictPort',
+    command: 'npm run dev -- --mode e2e --host 127.0.0.1 --port 4174 --strictPort',
     url: e2eBaseURL,
     reuseExistingServer: false,
     // E2E must never depend on inherited developer or CI environment variables.
