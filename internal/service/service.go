@@ -646,7 +646,8 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // ReconcilePending checks every locally retained signed transaction against
 // its network adapter. Confirmed and failed transactions are written to the
 // history and their recovery payloads are deleted in the same database
-// transaction. A still-pending transaction is left untouched.
+// transaction. A still-pending transaction is marked accepted and retained
+// for a possible BTC fee replacement.
 //
 // The returned count is the number of transactions moved out of the pending
 // state. Failures for individual records are joined and do not prevent the
