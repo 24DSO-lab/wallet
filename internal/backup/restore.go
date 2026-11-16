@@ -304,6 +304,9 @@ func (s *Service) swap(stagedDB, stagedKS string) (prevDir string, err error) {
 				errs = append(errs, uerr)
 			}
 		}
+		if syncErr := syncDir(data); syncErr != nil {
+			errs = append(errs, fmt.Errorf("sync rollback directory: %w", syncErr))
+		}
 		if len(errs) == 0 {
 			_ = os.Remove(prev) // пуст: всё вернулось на место
 			return fmt.Errorf("backup: restore failed, working data left unchanged: %w", cause)
@@ -332,7 +335,9 @@ func (s *Service) swap(stagedDB, stagedKS string) (prevDir string, err error) {
 	if err := move(stagedKS, ksDir); err != nil {
 		return "", rollback(err)
 	}
-	syncDir(data)
+	if err := syncDir(data); err != nil {
+		return "", rollback(fmt.Errorf("sync restored profile directory: %w", err))
+	}
 
 	if err := os.Remove(prev); err == nil { // был пуст: восстановление на чистую установку
 		return "", nil
