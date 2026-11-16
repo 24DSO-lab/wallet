@@ -7,7 +7,6 @@ import (
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
-	"github.com/24DSO-lab/wallet/internal/service"
 	"github.com/24DSO-lab/wallet/internal/testkit"
 )
 
