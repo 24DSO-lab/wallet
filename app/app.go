@@ -34,7 +34,7 @@ type Dependencies struct {
 	Profile       domain.Profile
 	SwitchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	CreateBackup  func(context.Context, string) error
-	RestoreBackup func(context.Context, string) (*service.Service, error)
+	RestoreBackup func(context.Context, string, secret.Bytes) (*service.Service, error)
 }
 
 type pendingDraft struct {
@@ -55,7 +55,7 @@ type App struct {
 	profile       domain.Profile
 	switchProfile func(context.Context, domain.Profile) (*service.Service, error)
 	createBackup  func(context.Context, string) error
-	restoreBackup func(context.Context, string) (*service.Service, error)
+	restoreBackup func(context.Context, string, secret.Bytes) (*service.Service, error)
 	locked        bool
 	lockTimeout   time.Duration
 	lockTimer     *time.Timer
@@ -709,7 +709,9 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	}
 
 	a.Lock()
-	restored, restoreErr := a.restoreBackup(a.context(), path)
+	passwordBytes := secret.FromString(password)
+	defer passwordBytes.Wipe()
+	restored, restoreErr := a.restoreBackup(a.context(), path, passwordBytes)
 	if restored != nil {
 		a.mu.Lock()
 		a.svc = restored
@@ -720,9 +722,6 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	}
 	if restored == nil {
 		return false, errors.New("restore_failed")
-	}
-	if err := restored.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
-		return false, safeError(err)
 	}
 	a.mu.Lock()
 	a.locked = false

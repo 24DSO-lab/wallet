@@ -1,11 +1,14 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
 func TestRollbackRestoresPreviousProfileAndRetainsFailedRestore(t *testing.T) {
@@ -71,4 +74,30 @@ func TestRollbackRestoresPreviousProfileAndRetainsFailedRestore(t *testing.T) {
 	if _, err := os.Stat(previous); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("previous directory still exists: %v", err)
 	}
+}
+
+func TestRestoreVerifiesPasswordBeforeReplacingWorkingData(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "keystore"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wallet.db"), fakeDBBytes(testSchema), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keystore", "existing.json"), []byte(ksMagic+"-existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, dir)
+	archive := filepath.Join(t.TempDir(), "backup.zip")
+	craft(t, archive, goodEntries(t, map[string]string{"restored.json": "-restored"}))
+	wrongPassword := errors.New("wrong password")
+	svc := newService(t, dir, fakeDB{version: testSchema}, func(c *Config) {
+		c.VerifyKeystorePassword = func(context.Context, string, secret.Bytes) error {
+			return wrongPassword
+		}
+	})
+	if _, err := svc.Restore(ctx, archive, secret.FromString("incorrect")); !errors.Is(err, wrongPassword) {
+		t.Fatalf("Restore error = %v, want wrong password", err)
+	}
+	sameTree(t, tree(t, dir), before)
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
 // Snapshotter делает согласованный снимок БД в новый файл. Его реализует
@@ -69,6 +70,10 @@ type Config struct {
 	// возвращает ошибку, если файл не keystore. Обязателен: его реализует
 	// Dev 2, подключает Dev 7. Вызывается при создании и при восстановлении.
 	CheckKeystoreFile func(name string, data []byte) error
+
+	// VerifyKeystorePassword verifies the staged archive's keystore before any
+	// working files are replaced.
+	VerifyKeystorePassword func(context.Context, string, secret.Bytes) error
 
 	// MaxSchemaVersion это новейшая версия схемы БД, которую понимает сборка
 	// (store.SchemaVersion()). Архив с более новой схемой не восстанавливается.

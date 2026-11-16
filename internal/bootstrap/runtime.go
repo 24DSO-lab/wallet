@@ -25,6 +25,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/provider"
 	"github.com/24DSO-lab/wallet/internal/service"
+	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/store"
 )
 
@@ -197,6 +198,13 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 	}
 	backupService, err := backup.New(backup.Config{
 		DataDir: cfg.DataDir, DB: db, CheckKeystoreFile: keystore.CheckFile,
+		VerifyKeystorePassword: func(ctx context.Context, dir string, password secret.Bytes) error {
+			staged, err := keystore.New(keystore.Config{Dir: dir, Profile: profile})
+			if err != nil {
+				return fmt.Errorf("open staged keystore: %w", err)
+			}
+			return staged.Verify(ctx, ports.Secrets{Password: password})
+		},
 		MaxSchemaVersion: store.SchemaVersion(),
 	})
 	if err != nil {
@@ -245,7 +253,7 @@ func (r *Runtime) createBackup(ctx context.Context, destination string) error {
 
 // restoreBackup closes the active profile database before the atomic backup
 // swap, then rebuilds its service and adapters against the restored files.
-func (r *Runtime) restoreBackup(ctx context.Context, archivePath string) (*service.Service, error) {
+func (r *Runtime) restoreBackup(ctx context.Context, archivePath string, password secret.Bytes) (*service.Service, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	profile := r.active
@@ -260,7 +268,7 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string) (*servi
 	}
 	delete(r.profiles, profile)
 
-	result, err := current.backup.Restore(ctx, archivePath)
+	result, err := current.backup.Restore(ctx, archivePath, password)
 	if err != nil {
 		rebuilt, buildErr := r.build(ctx, profile)
 		if buildErr == nil {
