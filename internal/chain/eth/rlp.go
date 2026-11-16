@@ -50,13 +50,13 @@ func rlpList(items ...[]byte) []byte {
 // rlpHeader возвращает префикс длины: base это 0x80 для строк и 0xc0 для списков.
 func rlpHeader(base byte, n int) []byte {
 	if n <= 55 {
-		return []byte{base + byte(n&0xff)}
+		return []byte{base + byte(n&0xff) //nolint:gosec // RLP short-form payload length is at most 55.}
 	}
 	var lb []byte
 	for v := n; v > 0; v >>= 8 {
 		lb = append([]byte{byte(v)}, lb...)
 	}
-	return append([]byte{base + 55 + byte(len(lb)&0xff)}, lb...)
+	return append([]byte{base + 55 + byte(len(lb)&0xff) //nolint:gosec // Long-form length-of-length is bounded by the Go int width.}, lb...)
 }
 
 // rlpItem это разобранное значение: строка (Data) или список (Items).
