@@ -23,7 +23,7 @@ func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.T
 	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return ports.Replacement{}, err }
 	chain := s.chains[domain.NetworkBitcoin]
 	adapter, ok := chain.(ports.RBFAdapter)
-	if !ok { return ports.Replacement{}, domain.NewError(domain.CodeProviderUnavailable, errors.New("Bitcoin adapter does not support RBF")) }
+	if !ok { return ports.Replacement{}, domain.NewError(domain.CodeProviderUnavailable, errors.New("bitcoin adapter does not support RBF")) }
 	replacement, err := adapter.PrepareReplacement(ctx, wallet.PublicWallet, original)
 	if err != nil { return ports.Replacement{}, err }
 	if replacement.ReplacesTxID != original.TxID || replacement.Intent.Wallet.ID != walletID ||
@@ -54,7 +54,7 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return "", err }
 	chain := s.chains[domain.NetworkBitcoin]
 	adapter, ok := chain.(ports.RBFAdapter)
-	if !ok { return "", domain.NewError(domain.CodeProviderUnavailable, errors.New("Bitcoin adapter does not support RBF")) }
+	if !ok { return "", domain.NewError(domain.CodeProviderUnavailable, errors.New("bitcoin adapter does not support RBF")) }
 	if err := adapter.VerifyReplacement(ctx, wallet.PublicWallet, original, replacement); err != nil { return "", err }
 	sigs, err := s.keystore.Sign(ctx, wallet.KeystoreID, sec, replacement.Prepared.Digests)
 	if err != nil { return "", err }
