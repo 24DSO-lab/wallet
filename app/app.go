@@ -693,33 +693,33 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	return true, nil
 }
 
-func (a *App) CreateBackup(password string) error {
+func (a *App) CreateBackup(password string) (bool, error) {
 	if err := a.ready(); err != nil {
-		return err
+		return false, err
 	}
 	if err := a.requireUnlocked(); err != nil {
-		return err
+		return false, err
 	}
 	if err := a.svc.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
-		return safeError(err)
+		return false, safeError(err)
 	}
 	a.mu.Lock()
 	create := a.createBackup
 	a.mu.Unlock()
 	if create == nil {
-		return errors.New("backup_unavailable")
+		return false, errors.New("backup_unavailable")
 	}
 	destination, err := wailsruntime.OpenDirectoryDialog(a.context(), wailsruntime.OpenDialogOptions{
 		Title: "Choose wallet backup folder",
 	})
 	if err != nil {
-		return safeError(err)
+		return false, safeError(err)
 	}
 	if destination == "" {
 		return nil
 	}
 	if err := create(a.context(), destination); err != nil {
-		return safeError(err)
+		return false, safeError(err)
 	}
 	return nil
 }
