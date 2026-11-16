@@ -25,6 +25,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/provider"
 	"github.com/24DSO-lab/wallet/internal/secret"
+	"github.com/24DSO-lab/wallet/internal/securestore"
 	"github.com/24DSO-lab/wallet/internal/service"
 	"github.com/24DSO-lab/wallet/internal/store"
 )
@@ -41,6 +42,7 @@ type Runtime struct {
 
 	mu       sync.Mutex
 	baseDir  string
+	secretPath string
 	keys     config.APIKeys
 	logger   *slog.Logger
 	profiles map[domain.Profile]profileRuntime
@@ -59,11 +61,17 @@ func New() (*Runtime, error) {
 		config.ProviderETHIndex: os.Getenv("ETHERSCAN_API_KEY"),
 		config.ProviderTron:     os.Getenv("TRONGRID_API_KEY"),
 	}
+	secretPath := filepath.Join(baseDir, "secrets", "etherscan.dpapi")
+	savedIndexKey, secretErr := securestore.LoadProviderKey(secretPath)
+	if secretErr != nil && !errors.Is(secretErr, securestore.ErrUnavailable) {
+		return nil, fmt.Errorf("load protected Etherscan credential: %w", secretErr)
+	}
+	if savedIndexKey != "" { rawKeys[config.ProviderETHIndex] = savedIndexKey }
 	keys := config.NewAPIKeys(rawKeys)
 	redactor := logging.NewRedactor(keys.Values()...)
 	logger := logging.New(os.Stderr, slog.LevelInfo, redactor)
 	rt := &Runtime{
-		baseDir: baseDir, keys: keys, logger: logger,
+		baseDir: baseDir, secretPath: secretPath, keys: keys, logger: logger,
 		profiles: make(map[domain.Profile]profileRuntime),
 		active: domain.ProfileTest,
 	}
@@ -75,8 +83,29 @@ func New() (*Runtime, error) {
 	rt.App = app.NewWithDependencies(app.Dependencies{
 		Service: initial.service, Profile: domain.ProfileTest,
 		SwitchProfile: rt.switchProfile, CreateBackup: rt.createBackup, RestoreBackup: rt.restoreBackup,
+		GetProviderSettings: rt.getProviderSettings, SaveEtherscanAPIKey: rt.saveEtherscanAPIKey,
+		DeleteEtherscanAPIKey: rt.deleteEtherscanAPIKey,
 	})
 	return rt, nil
+}
+
+func (r *Runtime) getProviderSettings() (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, configured := r.keys.Get(config.ProviderETHIndex)
+	return configured, nil
+}
+
+func (r *Runtime) saveEtherscanAPIKey(key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return securestore.SaveProviderKey(r.secretPath, key)
+}
+
+func (r *Runtime) deleteEtherscanAPIKey() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return securestore.DeleteProviderKey(r.secretPath)
 }
 
 func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRuntime, error) {
