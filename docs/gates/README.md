@@ -28,10 +28,16 @@
 
 CI workflow выполняет:
 
-- frontend typecheck, ESLint, Vitest и production build;
+- frontend typecheck, ESLint, Vitest, Playwright smoke E2E и production build;
 - `go mod verify`, Go build, vet и race-тесты;
 - `govulncheck`;
 - сборку Windows-приложения Wails.
+
+Последний проверенный CI до очистки временной диагностики проходил Go build/vet/race,
+`govulncheck`, lint, frontend typecheck/ESLint/Vitest и Windows Wails build, но падал
+на обоих Playwright smoke-тестах: mock `unlock()` получал пустую строку после заполнения
+поля пароля. Это отдельный незакрытый дефект интерфейса; тесты не отключены и не
+ослаблены. Его исправление отложено, но обязательно до релиза.
 
 Зелёный CI подтверждает сборку и автоматические тесты, но не заменяет тестовые
 транзакции, сверку обозревателей и восстановление на чистой установке.
