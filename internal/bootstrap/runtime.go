@@ -71,7 +71,7 @@ func New() (*Runtime, error) {
 	rt.profiles[domain.ProfileTest] = initial
 	rt.App = app.NewWithDependencies(app.Dependencies{
 		Service: initial.service, Profile: domain.ProfileTest,
-		SwitchProfile: rt.switchProfile, CreateBackup: rt.createBackup,
+		SwitchProfile: rt.switchProfile, CreateBackup: rt.createBackup, RestoreBackup: rt.restoreBackup,
 	})
 	return rt, nil
 }
@@ -216,14 +216,49 @@ func (r *Runtime) switchProfile(ctx context.Context, profile domain.Profile) (*s
 
 func (r *Runtime) createBackup(ctx context.Context) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	current, ok := r.profiles[r.active]
-	r.mu.Unlock()
 	if !ok || current.backup == nil {
 		return errors.New("backup service is unavailable")
 	}
 	destination := filepath.Join(r.baseDir, string(r.active), "backups")
 	_, err := current.backup.Create(ctx, destination)
 	return err
+}
+
+// restoreBackup closes the active profile database before the atomic backup
+// swap, then rebuilds its service and adapters against the restored files.
+func (r *Runtime) restoreBackup(ctx context.Context, archivePath string) (*service.Service, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	profile := r.active
+	current, ok := r.profiles[profile]
+	if !ok || current.backup == nil {
+		return nil, errors.New("backup service is unavailable")
+	}
+	if current.db != nil {
+		if err := current.db.Close(); err != nil {
+			return nil, fmt.Errorf("close database before restore: %w", err)
+		}
+	}
+	delete(r.profiles, profile)
+
+	result, err := current.backup.Restore(ctx, archivePath)
+	if err != nil {
+		rebuilt, buildErr := r.build(ctx, profile)
+		if buildErr == nil {
+			r.profiles[profile] = rebuilt
+			return rebuilt.service, err
+		}
+		return nil, errors.Join(err, fmt.Errorf("reopen existing wallet after failed restore: %w", buildErr))
+	}
+
+	rebuilt, err := r.build(ctx, profile)
+	if err != nil {
+		return nil, fmt.Errorf("open restored wallet (previous data retained at %s): %w", result.PreviousDir, err)
+	}
+	r.profiles[profile] = rebuilt
+	return rebuilt.service, nil
 }
 
 // Shutdown locks the wallet session and closes every profile database.
