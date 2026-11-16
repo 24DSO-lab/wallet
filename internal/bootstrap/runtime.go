@@ -43,6 +43,7 @@ type Runtime struct {
 	mu       sync.Mutex
 	baseDir  string
 	secretPath string
+	providerKeyConfigured bool
 	keys     config.APIKeys
 	logger   *slog.Logger
 	profiles map[domain.Profile]profileRuntime
@@ -71,7 +72,7 @@ func New() (*Runtime, error) {
 	redactor := logging.NewRedactor(keys.Values()...)
 	logger := logging.New(os.Stderr, slog.LevelInfo, redactor)
 	rt := &Runtime{
-		baseDir: baseDir, secretPath: secretPath, keys: keys, logger: logger,
+		baseDir: baseDir, secretPath: secretPath, providerKeyConfigured: rawKeys[config.ProviderETHIndex] != "", keys: keys, logger: logger,
 		profiles: make(map[domain.Profile]profileRuntime),
 		active: domain.ProfileTest,
 	}
@@ -92,20 +93,23 @@ func New() (*Runtime, error) {
 func (r *Runtime) getProviderSettings() (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, configured := r.keys.Get(config.ProviderETHIndex)
-	return configured, nil
+	return r.providerKeyConfigured, nil
 }
 
 func (r *Runtime) saveEtherscanAPIKey(key string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return securestore.SaveProviderKey(r.secretPath, key)
+	if err := securestore.SaveProviderKey(r.secretPath, key); err != nil { return err }
+	r.providerKeyConfigured = true
+	return nil
 }
 
 func (r *Runtime) deleteEtherscanAPIKey() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return securestore.DeleteProviderKey(r.secretPath)
+	if err := securestore.DeleteProviderKey(r.secretPath); err != nil { return err }
+	r.providerKeyConfigured = os.Getenv("ETHERSCAN_API_KEY") != ""
+	return nil
 }
 
 func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRuntime, error) {
