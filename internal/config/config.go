@@ -21,6 +21,10 @@ import (
 // кошелёк это правка этой константы, схема данных на неё не опирается.
 const MaxWallets = 3
 
+// MainnetEnabled remains false until ADR-001 acceptance gates 1, 2, 3 and 5 pass.
+// Enabling this is an explicit release decision, never a user preference.
+const MainnetEnabled = false
+
 // appDirName это имя каталога приложения внутри пользовательского каталога.
 const appDirName = "Wallet"
 
