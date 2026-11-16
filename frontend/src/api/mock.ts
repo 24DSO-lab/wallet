@@ -118,6 +118,7 @@ export function mockApi(): Api {
       guard()
       await wait()
       if (!to.trim() || !/^\d+(\.\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
+      toBaseUnits(amount, asset) // Validate precision at prepare time, as the Go adapter does.
       const quote: Quote = {
         draftId: crypto.randomUUID(),
         asset,
