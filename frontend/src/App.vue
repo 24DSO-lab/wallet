@@ -70,7 +70,7 @@ async function createWallet(){
     name.value=''
     const addressAssets:Asset[]=['BTC','ETH','USDT']
     const results=await Promise.allSettled(addressAssets.map(a=>api.receive(wallet.id,a)))
-    importAddresses.value=results.flatMap((result,index)=>result.status==='fulfilled'?[{asset:addressAssets[index],address:result.value}]:[])
+    importAddresses.value=results.flatMap((result,index)=>{const asset=addressAssets[index];return result.status==='fulfilled'&&asset?[{asset,address:result.value}]:[]})
     if(results.some(result=>result.status==='rejected'))notice.value='Некоторые адреса не удалось получить. Проверьте подключение к тестовой сети.'
     page.value='import-check'
   }catch{error.value='Не удалось импортировать кошелёк. Проверьте seed и пароль.'}
