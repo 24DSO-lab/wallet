@@ -40,7 +40,6 @@ type pendingDraft struct {
 	walletID string
 	intent   domain.SendIntent
 	prepared ports.Prepared
-	replacement *ports.Replacement
 	expires  time.Time
 	inFlight bool
 }
@@ -506,7 +505,6 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 	out := make([]TxDTO, 0, len(txs))
 	for _, tx := range txs {
 		dto := txDTO(tx)
-		dto.CanReplace = a.svc.HasRBF(a.context(), id, tx.TxID)
 		dto.ExplorerURL = transactionExplorerURL(a.profile, tx)
 		out = append(out, dto)
 	}
@@ -563,22 +561,6 @@ func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, 
 	return QuoteDTO{DraftID: id, Asset: asset, Network: string(prepared.Network), Recipient: prepared.Summary.To, Amount: prepared.Summary.Amount.FormatDecimal(info.Decimals), Fee: prepared.Fee.FormatDecimal(feeDecimals(prepared.FeeAsset, info.Decimals)), FeeAsset: string(prepared.FeeAsset), Total: prepared.Summary.Total.FormatDecimal(info.Decimals), Warnings: warningCodes(prepared.Warnings)}, nil
 }
 
-
-// PrepareRBF creates a fee-bump quote for an accepted, unconfirmed BTC send.
-func (a *App) PrepareRBF(walletID, txid string) (QuoteDTO, error) {
-	if err := a.ready(); err != nil { return QuoteDTO{}, err }
-	if err := a.requireUnlocked(); err != nil { return QuoteDTO{}, err }
-	replacement, err := a.svc.PrepareRBF(a.context(), walletID, domain.TxID(txid))
-	if err != nil { return QuoteDTO{}, safeError(err) }
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil { return QuoteDTO{}, errors.New("internal") }
-	id := hex.EncodeToString(raw[:])
-	a.mu.Lock()
-	a.drafts[id] = pendingDraft{walletID:walletID, intent:replacement.Intent, prepared:replacement.Prepared, replacement:&replacement, expires:time.Now().Add(10*time.Minute)}
-	a.mu.Unlock()
-	return QuoteDTO{DraftID:id, Asset:string(domain.BTC), Network:string(domain.NetworkBitcoin), Recipient:replacement.Prepared.Summary.To, Amount:replacement.Prepared.Summary.Amount.FormatDecimal(8), Fee:replacement.Prepared.Fee.FormatDecimal(8), FeeAsset:string(domain.BTC), Total:replacement.Prepared.Summary.Total.FormatDecimal(8), Warnings:warningCodes(replacement.Prepared.Warnings), ReplacesTxID:txid}, nil
-}
-
 func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) {
 	if err := a.ready(); err != nil {
 		return "", err
@@ -603,14 +585,7 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	if !ok {
 		return "", errors.New("draft_expired_or_in_use")
 	}
-	var txid domain.TxID
-	var err error
-	secrets := ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)}
-	if draft.replacement != nil {
-		txid, err = a.svc.ConfirmRBF(a.context(), draft.walletID, *draft.replacement, secrets)
-	} else {
-		txid, err = a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, secrets)
-	}
+	txid, err := a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	a.mu.Lock()
 	if err != nil && txid == "" && domain.CodeOf(err) != domain.CodeDuplicateSend {
 		// Failures before persistence are safe to retry, except when another
