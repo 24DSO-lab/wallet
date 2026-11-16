@@ -1,6 +1,6 @@
 export type Asset='BTC'|'ETH'|'USDC'|'USDT'
 export type Profile='main'|'test'
-export interface Balance{asset:Asset;network:string;amount:string;decimals:number;updatedAt:string;errorCode?:string;feeAsset?:string;feeBalance?:string}
+export interface Balance{asset:Asset;network:string;amount:string;pendingAmount?:string;decimals:number;updatedAt:string;errorCode?:string;feeAsset?:string;feeBalance?:string}
 export interface Wallet{id:string;name:string;balances:Balance[]}
 export interface PrepareWalletResult{mnemonic:string;challengePositions:number[]}
 export interface Tx{id:string;asset:Asset;direction:'in'|'out';amount:string;fee:string;status:'pending'|'confirmed'|'failed';timestamp:string;address:string}
