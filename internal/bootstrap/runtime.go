@@ -50,8 +50,9 @@ type Runtime struct {
 	active   domain.Profile
 }
 
-// New builds the default testnet runtime. Provider credentials are read only
-// from environment variables and never exposed through the Wails DTO layer.
+// New builds the default testnet runtime. Provider credentials are loaded from
+// the OS-protected secret store (with environment variables as a fallback) and
+// are never exposed through the Wails DTO layer.
 func New() (*Runtime, error) {
 	baseDir, err := config.DefaultBaseDir()
 	if err != nil {
