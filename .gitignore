@@ -29,3 +29,7 @@ coverage.*
 .vscode/
 .DS_Store
 Thumbs.db
+frontend/wailsjs/go/models.ts
+frontend/wailsjs/go/app/App.d.ts
+frontend/wailsjs/go/app/App.js
+wallet-res.syso
