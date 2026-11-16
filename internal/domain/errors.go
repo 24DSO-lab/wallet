@@ -41,6 +41,7 @@ const (
 	CodeBroadcastUnknown    ErrorCode = "broadcast_unknown" // подписанная транзакция сохранена, результат отправки требует сверки
 	CodeKeystoreCorrupt     ErrorCode = "keystore_corrupt"
 	CodeBackupInvalid       ErrorCode = "backup_invalid"
+	CodeMainnetDisabled     ErrorCode = "mainnet_disabled"
 )
 
 // AppError это ошибка с кодом для интерфейса. Cause хранит исходную причину
