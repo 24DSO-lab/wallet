@@ -125,6 +125,12 @@ func (a *App) requireUnlocked() error {
 	if a.locked {
 		return errors.New("session_locked")
 	}
+	if !a.pendingMnemonic.IsEmpty() && !time.Now().Before(a.pendingWalletExpires) {
+		a.pendingMnemonic.Wipe()
+		a.pendingWalletName = ""
+		a.pendingChallengePositions = nil
+		a.pendingWalletExpires = time.Time{}
+	}
 	if a.lockTimer == nil {
 		a.lockTimer = time.AfterFunc(a.lockTimeout, a.Lock)
 	} else {
@@ -655,9 +661,11 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 
 	a.Lock()
 	restored, restoreErr := a.restoreBackup(a.context(), path)
-	a.mu.Lock()
-	a.svc = restored
-	a.mu.Unlock()
+	if restored != nil {
+		a.mu.Lock()
+		a.svc = restored
+		a.mu.Unlock()
+	}
 	if restoreErr != nil {
 		return false, safeError(restoreErr)
 	}
