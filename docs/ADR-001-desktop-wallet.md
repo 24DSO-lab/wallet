@@ -147,7 +147,7 @@ flowchart TD
 
 Подпись в интерфейс сети не входит: её выполняет только Keystore, получив неподписанную транзакцию и пароль.
 
-**Методы Wails (ориентировочный список):** ListWallets, CreateWallet, ImportWallet, RenameWallet, DeleteWallet, GetBalances, GetReceiveAddress, GetHistory, PrepareSend, ConfirmSend; на этапе обмена добавляются GetSwapQuote и StartSwap.
+**Методы Wails (ориентировочный список v1):** ListWallets, CreateWallet, ImportWallet, RenameWallet, DeleteWallet, GetBalances, GetReceiveAddress, GetHistory, PrepareSend, ConfirmSend. Методы обмена не входят в v1 и могут появиться только после отдельного ADR.
 
 ## Ключи и безопасность
 
