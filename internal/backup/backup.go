@@ -240,11 +240,11 @@ func (s *Service) Create(ctx context.Context, destDir string) (res Result, err e
 			_ = os.Remove(final + checksumExt)
 			return Result{}, fmt.Errorf("backup: publish archive: %w", err)
 		}
-        result := Result{Path: final, ChecksumPath: final + checksumExt, SHA256: sum, Files: 1 + len(ks)}
-        if err := syncDir(destDir); err != nil {
-            return result, fmt.Errorf("backup: archive published but destination directory sync failed: %w", err)
-        }
-        return result, nil
+		result := Result{Path: final, ChecksumPath: final + checksumExt, SHA256: sum, Files: 1 + len(ks)}
+		if err := syncDir(destDir); err != nil {
+			return result, fmt.Errorf("backup: archive published but destination directory sync failed: %w", err)
+		}
+		return result, nil
 	}
 	return Result{}, errors.New("backup: could not choose a free archive name")
 }
