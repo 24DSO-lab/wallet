@@ -633,8 +633,9 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 		}
 		chain := s.chains[item.Network]
 		if chain == nil {
-			// Profiles can intentionally omit an adapter while offline or during
-			// a partial rollout. Keep the durable pending record and retry later.
+			// A profile may intentionally omit an adapter (for example while
+			// offline or during a partial network rollout). Keep the durable
+			// pending record and retry when that adapter is configured.
 			s.log.Warn("pending transaction reconciliation deferred: chain adapter unavailable",
 				"wallet_id", item.WalletID, "asset", item.Asset, "network", item.Network)
 			continue

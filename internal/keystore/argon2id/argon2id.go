@@ -29,7 +29,7 @@ type block [blockWords]uint64
 // password и salt не изменяются; всё промежуточное затирается.
 // secret и ad (ключ и ассоциированные данные RFC 9106) необязательны.
 func Key(password, salt, secret, ad []byte, time, memoryKiB uint32, threads uint8, keyLen uint32) []byte {
-	if time < 1 || threads < 1 || memoryKiB < 8*uint32(threads) || keyLen < 4 {
+	if time < 1 || threads < 1 || memoryKiB < 8*uint32(threads) || keyLen < 4 || uint64(len(password)) > uint64(^uint32(0)) || uint64(len(salt)) > uint64(^uint32(0)) || uint64(len(secret)) > uint64(^uint32(0)) || uint64(len(ad)) > uint64(^uint32(0)) {
 		panic("argon2id: invalid parameters")
 	}
 	p := uint32(threads)
@@ -85,7 +85,7 @@ func initialHash(password, salt, secret, ad []byte, p, keyLen, m, t uint32) []by
 	u32 := func(v uint32) []byte { return binary.LittleEndian.AppendUint32(nil, v) }
 	parts = append(parts, u32(p), u32(keyLen), u32(m), u32(t), u32(version), u32(typeArgon2id))
 	for _, f := range [][]byte{password, salt, secret, ad} {
-		parts = append(parts, u32(uint32(len(f))), f)
+		parts = append(parts, u32(uint32(len(f))), f) //nolint:gosec // Key rejects inputs larger than the Argon2 uint32 length fields.
 	}
 	return blake2b(64, parts...)
 }
@@ -164,11 +164,13 @@ func fillSegment(mem []block, pass, slice, lane, lanes, laneLen, segLen, memBloc
 		} else {
 			rnd = mem[prev][0]
 		}
+		//nolint:gosec // Shifting right 32 bits leaves a value representable by uint32.
 		refLane := uint32(rnd>>32) % lanes
 		if pass == 0 && slice == 0 {
 			refLane = lane
 		}
-		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd), laneLen, segLen)
+		//nolint:gosec // Argon2 index function uses the low 32 bits of pseudo-random output.
+		refIdx := indexAlpha(pass, slice, i, refLane == lane, uint32(rnd&0xffffffff), laneLen, segLen)
 		compress(&mem[cur], &mem[prev], &mem[refLane*laneLen+refIdx], pass > 0)
 	}
 }
@@ -206,7 +208,7 @@ func indexAlpha(pass, slice, index uint32, sameLane bool, rnd32, laneLen, segLen
 	if pass != 0 && slice != syncPoints-1 {
 		startPos = (slice + 1) * segLen
 	}
-	return uint32((uint64(startPos) + rel) % uint64(laneLen))
+	return uint32(((uint64(startPos)+rel)%uint64(laneLen))&0xffffffff) //nolint:gosec // The modulo result is an index bounded by laneLen.
 }
 
 // compress это G из RFC 9106: dst = P(prev xor ref) xor prev xor ref,
