@@ -1,0 +1,527 @@
+// Package service orchestrates wallet use cases over the domain ports.
+// It deliberately contains no Wails DTOs: those belong to the separately
+// reviewed application contract.
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/24DSO-lab/wallet/internal/config"
+	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/ports"
+	"github.com/24DSO-lab/wallet/internal/secret"
+)
+
+var (
+	ErrNilStore     = errors.New("service: store is required")
+	ErrNilKeystore  = errors.New("service: keystore is required")
+	ErrChainMissing = errors.New("service: chain adapter is not configured")
+)
+
+// Option configures a Service. Options are applied only during construction.
+type Option func(*options)
+
+type options struct {
+	logger *slog.Logger
+	now    func() time.Time
+	newID  func() (string, error)
+}
+
+// WithLogger sets the structured logger. A discard logger is used by default.
+func WithLogger(logger *slog.Logger) Option {
+	return func(o *options) {
+		if logger != nil {
+			o.logger = logger
+		}
+	}
+}
+
+// WithClock replaces the clock, primarily for deterministic tests.
+func WithClock(now func() time.Time) Option {
+	return func(o *options) {
+		if now != nil {
+			o.now = now
+		}
+	}
+}
+
+// WithIDGenerator replaces the cryptographically-random wallet ID generator.
+// Production callers should normally use the default generator.
+func WithIDGenerator(generate func() (string, error)) Option {
+	return func(o *options) {
+		if generate != nil {
+			o.newID = generate
+		}
+	}
+}
+
+// Service is safe for concurrent use. Wallet creation/import is serialized so
+// concurrent calls cannot exceed the configured wallet limit.
+type Service struct {
+	store     ports.Store
+	keystore  ports.Keystore
+	chains    map[domain.Network]ports.ChainAdapter
+	log       *slog.Logger
+	now       func() time.Time
+	newID     func() (string, error)
+	lifecycle sync.Mutex
+}
+
+// New validates and copies all dependencies. A chain map entry must be keyed
+// by the same network reported by the adapter.
+func New(st ports.Store, ks ports.Keystore, chains []ports.ChainAdapter, opts ...Option) (*Service, error) {
+	if st == nil {
+		return nil, ErrNilStore
+	}
+	if ks == nil {
+		return nil, ErrNilKeystore
+	}
+	o := options{
+		logger: slog.New(slog.NewTextHandler(discardWriter{}, nil)),
+		now:    time.Now,
+		newID:  randomID,
+	}
+	for _, apply := range opts {
+		if apply != nil {
+			apply(&o)
+		}
+	}
+	adapters := make(map[domain.Network]ports.ChainAdapter, len(chains))
+	for _, chain := range chains {
+		if chain == nil || !chain.Network().Valid() {
+			return nil, fmt.Errorf("service: invalid chain adapter")
+		}
+		n := chain.Network()
+		if _, exists := adapters[n]; exists {
+			return nil, fmt.Errorf("service: duplicate chain adapter for %s", n)
+		}
+		adapters[n] = chain
+	}
+	return &Service{store: st, keystore: ks, chains: adapters, log: o.logger, now: o.now, newID: o.newID}, nil
+}
+
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func randomID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("service: generate wallet id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+// ListWallets returns public wallet records in the repository's display order.
+func (s *Service) ListWallets(ctx context.Context) ([]domain.Wallet, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, contextError(err)
+	}
+	return s.store.Wallets().List(ctx)
+}
+
+// CreateWallet creates a wallet and returns its mnemonic exactly once as a
+// secret.Bytes value. The caller owns the returned secret and MUST call Wipe.
+// Password and passphrase are consumed and wiped by this method on every path.
+func (s *Service) CreateWallet(ctx context.Context, name string, words int, sec ports.Secrets) (domain.Wallet, secret.Bytes, error) {
+	defer wipeSecrets(sec)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return domain.Wallet{}, secret.Bytes{}, domain.NewError(domain.CodeInvalidInput, errors.New("wallet name is empty"))
+	}
+	if words != 12 && words != 24 {
+		return domain.Wallet{}, secret.Bytes{}, domain.NewError(domain.CodeInvalidInput, errors.New("mnemonic length must be 12 or 24 words"))
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if err := ctx.Err(); err != nil {
+		return domain.Wallet{}, secret.Bytes{}, contextError(err)
+	}
+	wallets, err := s.store.Wallets().List(ctx)
+	if err != nil {
+		return domain.Wallet{}, secret.Bytes{}, err
+	}
+	if len(wallets) >= config.MaxWallets {
+		return domain.Wallet{}, secret.Bytes{}, domain.NewError(domain.CodeWalletLimit, errors.New("maximum wallet count reached"))
+	}
+	mnemonic, err := s.keystore.NewMnemonic(words)
+	if err != nil {
+		return domain.Wallet{}, secret.Bytes{}, err
+	}
+	defer mnemonic.Wipe()
+	wallet, err := s.persistWallet(ctx, name, mnemonic, sec)
+	if err != nil {
+		return domain.Wallet{}, secret.Bytes{}, err
+	}
+	return wallet, mnemonic.Clone(), nil
+}
+
+// ImportWallet imports a BIP-39 mnemonic. Ownership of mnemonic and sec is
+// transferred to this call; all secret buffers are wiped before it returns.
+func (s *Service) ImportWallet(ctx context.Context, name string, mnemonic secret.Bytes, sec ports.Secrets) (domain.Wallet, error) {
+	defer mnemonic.Wipe()
+	defer wipeSecrets(sec)
+	name = strings.TrimSpace(name)
+	if name == "" || mnemonic.IsEmpty() {
+		return domain.Wallet{}, domain.NewError(domain.CodeInvalidInput, errors.New("wallet name and mnemonic are required"))
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	if err := ctx.Err(); err != nil {
+		return domain.Wallet{}, contextError(err)
+	}
+	wallets, err := s.store.Wallets().List(ctx)
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	if len(wallets) >= config.MaxWallets {
+		return domain.Wallet{}, domain.NewError(domain.CodeWalletLimit, errors.New("maximum wallet count reached"))
+	}
+	return s.persistWallet(ctx, name, mnemonic, sec)
+}
+
+func (s *Service) persistWallet(ctx context.Context, name string, mnemonic secret.Bytes, sec ports.Secrets) (domain.Wallet, error) {
+	id, err := s.newID()
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	if id == "" {
+		return domain.Wallet{}, domain.NewError(domain.CodeInternal, errors.New("wallet id generator returned an empty id"))
+	}
+	keys, err := s.keystore.Save(ctx, id, mnemonic, sec)
+	if err != nil {
+		return domain.Wallet{}, err
+	}
+	if keys.BTCXpub == "" || keys.ETHAddress == "" || keys.TronAddress == "" {
+		rollbackErr := s.removeKeystoreFile(ctx, id, sec.Password)
+		return domain.Wallet{}, errors.Join(domain.NewError(domain.CodeInternal, errors.New("keystore returned incomplete public wallet data")), rollbackErr)
+	}
+	wallets, err := s.store.Wallets().List(ctx)
+	if err != nil {
+		rollbackErr := s.removeKeystoreFile(ctx, id, sec.Password)
+		return domain.Wallet{}, errors.Join(err, rollbackErr)
+	}
+	wallet := domain.Wallet{
+		PublicWallet: domain.PublicWallet{ID: id, Name: name, BTCXpub: keys.BTCXpub, ETHAddress: keys.ETHAddress, TronAddress: keys.TronAddress},
+		KeystoreID:   id, CreatedAt: s.now().UTC(), SortOrder: len(wallets),
+	}
+	// Keep this transaction explicit even though the SQLite WalletRepo also
+	// materializes the two account addresses: ports.Store implementations must
+	// all expose the same postcondition (wallet plus ETH/TRON receive addresses).
+	err = s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
+		if err := tx.Wallets().Create(txctx, wallet); err != nil {
+			return err
+		}
+		return tx.Addresses().Upsert(txctx, []domain.Address{
+			{WalletID: id, Network: domain.NetworkEthereum, Address: keys.ETHAddress, Path: "m/44'/60'/0'/0/0", Chain: domain.ChainReceive, Index: 0},
+			{WalletID: id, Network: domain.NetworkTron, Address: keys.TronAddress, Path: "m/44'/195'/0'/0/0", Chain: domain.ChainReceive, Index: 0},
+		})
+	})
+	if err != nil {
+		rollbackErr := s.removeKeystoreFile(ctx, id, sec.Password)
+		return domain.Wallet{}, errors.Join(err, rollbackErr)
+	}
+	s.log.Info("wallet created", "wallet_id", id)
+	return wallet, nil
+}
+
+// removeKeystoreFile compensates a failed wallet creation. Cleanup is allowed
+// to finish even when the caller's context was canceled after Save succeeded.
+func (s *Service) removeKeystoreFile(ctx context.Context, id string, password secret.Bytes) error {
+	cleanupPassword := password.Clone()
+	defer cleanupPassword.Wipe()
+	return s.keystore.Delete(context.WithoutCancel(ctx), id, ports.Secrets{Password: cleanupPassword})
+}
+
+// RenameWallet changes only the public display name.
+func (s *Service) RenameWallet(ctx context.Context, id, name string) error {
+	name = strings.TrimSpace(name)
+	if id == "" || name == "" {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("wallet id and name are required"))
+	}
+	return s.store.Wallets().Rename(ctx, id, name)
+}
+
+// VerifyPassword verifies the application password without retaining it.
+func (s *Service) VerifyPassword(ctx context.Context, password secret.Bytes) error {
+	defer password.Wipe()
+	return s.keystore.Verify(ctx, ports.Secrets{Password: password})
+}
+
+// ChangePassword atomically re-encrypts all keystore files. Both inputs are
+// consumed and wiped by this method.
+func (s *Service) ChangePassword(ctx context.Context, oldPassword, newPassword secret.Bytes) error {
+	defer oldPassword.Wipe()
+	defer newPassword.Wipe()
+	return s.keystore.ChangePassword(ctx, oldPassword, newPassword)
+}
+
+// GetReceiveAddress returns the next unused address for the selected asset.
+// Bitcoin addresses must first be discovered by RefreshWallet.
+func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset domain.Asset) (domain.Address, error) {
+	info, ok := asset.Info()
+	if !ok || !asset.IsWalletAsset() {
+		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
+		return domain.Address{}, err
+	}
+	addresses, err := s.store.Addresses().List(ctx, walletID, info.Network)
+	if err != nil {
+		return domain.Address{}, err
+	}
+	for _, address := range addresses {
+		if !address.Used {
+			return address, nil
+		}
+	}
+	return domain.Address{}, domain.NewError(domain.CodeNotFound, domain.ErrNotFound)
+}
+
+// GetBalances returns all cached wallet-asset balances plus the TRX fee
+// balance. Missing cache entries are omitted; callers can distinguish an
+// unrefreshed asset from a zero balance.
+func (s *Service) GetBalances(ctx context.Context, walletID string) (map[domain.Asset]ports.BalanceRecord, error) {
+	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
+		return nil, err
+	}
+	assets := []domain.Asset{domain.BTC, domain.ETH, domain.USDC, domain.USDT, domain.TRX}
+	out := make(map[domain.Asset]ports.BalanceRecord, len(assets))
+	for _, asset := range assets {
+		record, err := s.store.Balances().Get(ctx, walletID, asset)
+		if errors.Is(err, domain.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[asset] = record
+	}
+	return out, nil
+}
+
+// RevealSeed decrypts a wallet mnemonic for an explicit backup/recovery flow.
+// The returned secret belongs to the caller and MUST be wiped. Password and
+// passphrase inputs are consumed and wiped by this method.
+func (s *Service) RevealSeed(ctx context.Context, walletID string, sec ports.Secrets) (secret.Bytes, error) {
+	defer wipeSecrets(sec)
+	wallet, err := s.store.Wallets().Get(ctx, walletID)
+	if err != nil {
+		return secret.Bytes{}, err
+	}
+	return s.keystore.RevealSeed(ctx, wallet.KeystoreID, sec)
+}
+
+// GetHistory returns cached history for one wallet and asset. An empty asset
+// returns all assets, as defined by ports.TransactionRepo.
+func (s *Service) GetHistory(ctx context.Context, walletID string, asset domain.Asset) ([]domain.Tx, error) {
+	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
+		return nil, err
+	}
+	if asset != "" && !asset.IsWalletAsset() {
+		return nil, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	return s.store.Transactions().List(ctx, walletID, asset)
+}
+
+// RefreshWallet refreshes one asset and persists the complete provider snapshot
+// atomically. Provider data is treated as untrusted and must already have been
+// validated by the network adapter.
+func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset domain.Asset) (ports.Snapshot, error) {
+	info, ok := asset.Info()
+	if !ok || !asset.IsWalletAsset() {
+		return ports.Snapshot{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	wallet, err := s.store.Wallets().Get(ctx, walletID)
+	if err != nil {
+		return ports.Snapshot{}, err
+	}
+	chain := s.chains[info.Network]
+	if chain == nil {
+		return ports.Snapshot{}, domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
+	}
+	snapshot, err := chain.Refresh(ctx, wallet.PublicWallet, asset)
+	if err != nil {
+		return ports.Snapshot{}, err
+	}
+	if snapshot.Asset != asset {
+		return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned a snapshot for a different asset"))
+	}
+	for i := range snapshot.Addresses {
+		if snapshot.Addresses[i].WalletID != walletID || snapshot.Addresses[i].Network != info.Network || chain.ValidateAddress(snapshot.Addresses[i].Address) != nil {
+			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid wallet address"))
+		}
+	}
+	for i := range snapshot.History {
+		if snapshot.History[i].WalletID != walletID || snapshot.History[i].Asset != asset {
+			return ports.Snapshot{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned history for a different wallet or asset"))
+		}
+	}
+	if snapshot.FetchedAt.IsZero() {
+		snapshot.FetchedAt = s.now().UTC()
+	}
+	err = s.store.WithTx(ctx, func(txctx context.Context, tx ports.Store) error {
+		if err := tx.Addresses().Upsert(txctx, snapshot.Addresses); err != nil {
+			return err
+		}
+		if err := tx.Balances().Put(txctx, walletID, asset, snapshot.Balance, snapshot.FetchedAt); err != nil {
+			return err
+		}
+		if asset == domain.BTC {
+			if err := tx.UTXOs().Replace(txctx, walletID, snapshot.UTXOs); err != nil {
+				return err
+			}
+		}
+		if err := tx.Transactions().Upsert(txctx, snapshot.History); err != nil {
+			return err
+		}
+		if snapshot.FeeAsset != "" && snapshot.FeeAsset != asset {
+			feeBalance := domain.Balance{Confirmed: snapshot.FeeBalance}
+			if err := tx.Balances().Put(txctx, walletID, snapshot.FeeAsset, feeBalance, snapshot.FetchedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ports.Snapshot{}, err
+	}
+	return snapshot, nil
+}
+
+// PrepareSend creates and verifies an unsigned draft. It never asks for a
+// password and never has access to private keys.
+func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
+	if err := intent.Validate(); err != nil {
+		return ports.Prepared{}, err
+	}
+	wallet, err := s.store.Wallets().Get(ctx, intent.Wallet.ID)
+	if err != nil {
+		return ports.Prepared{}, err
+	}
+	intent.Wallet = wallet.PublicWallet
+	info, _ := intent.Asset.Info()
+	chain := s.chains[info.Network]
+	if chain == nil {
+		return ports.Prepared{}, domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
+	}
+	if err := chain.ValidateAddress(intent.To); err != nil {
+		return ports.Prepared{}, domain.NewError(domain.CodeInvalidAddress, err)
+	}
+	prepared, err := chain.Prepare(ctx, intent)
+	if err != nil {
+		return ports.Prepared{}, err
+	}
+	if prepared.Network != info.Network || prepared.Asset != intent.Asset {
+		return ports.Prepared{}, domain.NewError(domain.CodeVerificationFailed, errors.New("adapter prepared a different network or asset"))
+	}
+	if err := chain.Verify(prepared, intent); err != nil {
+		return ports.Prepared{}, err
+	}
+	return prepared, nil
+}
+
+// ConfirmSend re-verifies the exact draft immediately before signing, then
+// stores the signed transaction before broadcasting. If broadcast has an
+// ambiguous result, the pending record is deliberately retained for later
+// reconciliation; this method never blindly retries a non-idempotent send.
+// Password and passphrase are consumed and wiped by this method.
+func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
+	defer wipeSecrets(sec)
+	if walletID == "" || intent.Wallet.ID != walletID {
+		return "", domain.NewError(domain.CodeInvalidInput, errors.New("wallet id does not match send intent"))
+	}
+	wallet, err := s.store.Wallets().Get(ctx, walletID)
+	if err != nil {
+		return "", err
+	}
+	intent.Wallet = wallet.PublicWallet
+	info, ok := intent.Asset.Info()
+	if !ok || !intent.Asset.IsWalletAsset() {
+		return "", domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
+	}
+	chain := s.chains[info.Network]
+	if chain == nil {
+		return "", domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
+	}
+	if err := intent.Validate(); err != nil {
+		return "", err
+	}
+	if err := chain.ValidateAddress(intent.To); err != nil {
+		return "", domain.NewError(domain.CodeInvalidAddress, err)
+	}
+	if err := chain.Verify(prepared, intent); err != nil {
+		return "", err
+	}
+	signatures, err := s.keystore.Sign(ctx, wallet.KeystoreID, sec, prepared.Digests)
+	if err != nil {
+		return "", err
+	}
+	signed, err := chain.Finalize(prepared, signatures)
+	if err != nil {
+		return "", err
+	}
+	if signed.Network != info.Network || signed.TxID == "" || len(signed.Raw) == 0 {
+		return "", domain.NewError(domain.CodeVerificationFailed, errors.New("adapter returned invalid signed transaction"))
+	}
+	pending := ports.PendingTx{TxID: signed.TxID, WalletID: walletID, Asset: intent.Asset, Network: info.Network, Raw: append([]byte(nil), signed.Raw...), CreatedAt: s.now().UTC()}
+	if err := s.store.PendingTxs().Put(ctx, pending); err != nil {
+		return "", err
+	}
+	txid, err := chain.Broadcast(ctx, signed)
+	if err != nil {
+		return "", err
+	}
+	if txid != signed.TxID {
+		return "", domain.NewError(domain.CodeProviderBadResponse, errors.New("broadcast transaction id differs from locally finalized id"))
+	}
+	if err := s.store.PendingTxs().Delete(ctx, signed.TxID); err != nil {
+		s.log.Error("broadcast succeeded but pending record cleanup failed", "wallet_id", walletID, "error", err)
+		// The tx is already in the network. Return success; reconciliation can
+		// remove the stale pending record without risking a second broadcast.
+	}
+	return txid, nil
+}
+
+// Settings returns only non-sensitive settings; the repository enforces the
+// sensitive-key filter.
+func (s *Service) Settings(ctx context.Context) (map[string]string, error) {
+	return s.store.Settings().List(ctx)
+}
+
+// GetSetting reads a setting by its explicit key. Sensitive values should be
+// fetched only by a backend component that needs them, never copied to a DTO.
+func (s *Service) GetSetting(ctx context.Context, key string) (string, error) {
+	if strings.TrimSpace(key) == "" {
+		return "", domain.NewError(domain.CodeInvalidInput, errors.New("setting key is empty"))
+	}
+	return s.store.Settings().Get(ctx, key)
+}
+
+// SetSetting stores a setting. Sensitive keys are still excluded from Settings.
+func (s *Service) SetSetting(ctx context.Context, key, value string) error {
+	if strings.TrimSpace(key) == "" {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("setting key is empty"))
+	}
+	return s.store.Settings().Set(ctx, key, value)
+}
+
+func wipeSecrets(sec ports.Secrets) { sec.Password.Wipe(); sec.Passphrase.Wipe() }
+
+func contextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.NewError(domain.CodeTimeout, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.NewError(domain.CodeCanceled, err)
+	}
+	return err
+}
