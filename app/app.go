@@ -373,6 +373,44 @@ func (a *App) ImportWallet(name, mnemonic, password, passphrase string) (WalletD
 	return walletDTO(w, balances), nil
 }
 
+// ChangePassword re-encrypts all wallet keystore entries with a new password.
+func (a *App) ChangePassword(oldPassword, newPassword string) error {
+	if err := a.ready(); err != nil {
+		return err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		return err
+	}
+	if len(newPassword) < 10 {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("password must contain at least 10 characters"))
+	}
+	if err := a.svc.ChangePassword(a.context(), secret.FromString(oldPassword), secret.FromString(newPassword)); err != nil {
+		return safeError(err)
+	}
+	a.touch()
+	return nil
+}
+
+// RevealSeed exposes a wallet mnemonic only for this explicit, password-verified
+// request. The returned secret buffer is wiped before crossing the Wails boundary.
+func (a *App) RevealSeed(id, password, passphrase string) (string, error) {
+	if err := a.ready(); err != nil {
+		return "", err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		return "", err
+	}
+	mnemonic, err := a.svc.RevealSeed(a.context(), id, ports.Secrets{
+		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
+	})
+	if err != nil {
+		return "", safeError(err)
+	}
+	defer mnemonic.Wipe()
+	a.touch()
+	return string(mnemonic.Expose()), nil
+}
+
 func (a *App) RenameWallet(id, name string) error {
 	if err := a.ready(); err != nil {
 		return err
