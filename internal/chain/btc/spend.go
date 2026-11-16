@@ -487,14 +487,14 @@ func (e *SpendEngine) Status(ctx context.Context, id domain.TxID) (ports.TxStatu
 	if !validTxID(string(id)) { return ports.TxStatus{}, domain.NewError(domain.CodeInvalidInput, ErrInvalidTxID) }
 	status, err := e.api.GetTransactionStatus(ctx, string(id))
 	if err != nil { return ports.TxStatus{}, err }
-	if !status.Confirmed { return ports.TxStatus{State:domain.TxPending}, nil }
+	if !status.Confirmed { return ports.TxStatus{State:domain.TxPending, Known:true}, nil }
 	if status.BlockHeight == 0 { return ports.TxStatus{}, ErrMalformedResponse }
 	tip, err := e.api.GetTipHeight(ctx)
 	if err != nil { return ports.TxStatus{}, err }
 	if status.BlockHeight > tip { return ports.TxStatus{}, ErrMalformedResponse }
 	depth := tip - status.BlockHeight + 1
 	if depth > uint64(^uint32(0)) { depth = uint64(^uint32(0)) }
-	return ports.TxStatus{State:domain.TxConfirmed, BlockHeight:status.BlockHeight, Confirmations:uint32(depth)}, nil
+	return ports.TxStatus{State:domain.TxConfirmed, Known:true, BlockHeight:status.BlockHeight, Confirmations:uint32(depth)}, nil
 }
 
 // stripWitness parses a SegWit serialization and returns the canonical
