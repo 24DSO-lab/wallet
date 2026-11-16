@@ -44,6 +44,7 @@ type TxDTO struct {
 	Amount    string `json:"amount"`
 	Fee       string `json:"fee"`
 	FeeAsset  string `json:"feeAsset"`
+	ExplorerURL string `json:"explorerUrl,omitempty"`
 	Status    string `json:"status"`
 	Timestamp string `json:"timestamp"`
 	Address   string `json:"address"`
