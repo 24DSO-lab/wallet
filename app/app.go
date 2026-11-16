@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/big"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -500,7 +501,9 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 	}
 	out := make([]TxDTO, 0, len(txs))
 	for _, tx := range txs {
-		out = append(out, txDTO(tx))
+		dto := txDTO(tx)
+		dto.ExplorerURL = transactionExplorerURL(a.profile, tx)
+		out = append(out, dto)
 	}
 	return out, nil
 }
@@ -710,6 +713,33 @@ func (a *App) CreateBackup(password string) error {
 		return safeError(err)
 	}
 	return nil
+}
+
+func transactionExplorerURL(profile domain.Profile, tx domain.Tx) string {
+	info, ok := tx.Asset.Info()
+	if !ok || tx.TxID == "" {
+		return ""
+	}
+	id := url.PathEscape(string(tx.TxID))
+	switch info.Network {
+	case domain.NetworkBitcoin:
+		if profile == domain.ProfileTest {
+			return "https://mempool.space/testnet/tx/" + id
+		}
+		return "https://mempool.space/tx/" + id
+	case domain.NetworkEthereum:
+		if profile == domain.ProfileTest {
+			return "https://sepolia.etherscan.io/tx/" + id
+		}
+		return "https://etherscan.io/tx/" + id
+	case domain.NetworkTron:
+		if profile == domain.ProfileTest {
+			return "https://nile.tronscan.org/#/transaction/" + id
+		}
+		return "https://tronscan.org/#/transaction/" + id
+	default:
+		return ""
+	}
 }
 
 func parseAsset(s string) (domain.Asset, error) {
