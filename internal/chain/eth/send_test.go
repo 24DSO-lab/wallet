@@ -234,14 +234,14 @@ func TestStatus(t *testing.T) {
 		want  ports.TxStatus
 		code  domain.ErrorCode
 	}{
-		{"pending", func(r *fakeRPC) { r.known = true }, ports.TxStatus{State: domain.TxPending}, ""},
+		{"pending", func(r *fakeRPC) { r.known = true }, ports.TxStatus{State: domain.TxPending, Known: true}, ""},
 		{"unknown to the node", func(r *fakeRPC) {}, ports.TxStatus{}, domain.CodeNotFound},
 		{"confirmed", func(r *fakeRPC) { r.receipt = &Receipt{Status: 1, BlockNumber: 990} },
-			ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 990, Confirmations: 11}, ""},
+			ports.TxStatus{State: domain.TxConfirmed, Known: true, BlockHeight: 990, Confirmations: 11}, ""},
 		{"in the head block", func(r *fakeRPC) { r.receipt = &Receipt{Status: 1, BlockNumber: 1000} },
 			ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 1000, Confirmations: 1}, ""},
 		{"reverted", func(r *fakeRPC) { r.receipt = &Receipt{Status: 0, BlockNumber: 995} },
-			ports.TxStatus{State: domain.TxFailed, BlockHeight: 995, Confirmations: 6}, ""},
+			ports.TxStatus{State: domain.TxFailed, Known: true, BlockHeight: 995, Confirmations: 6}, ""},
 		{"node lags behind the receipt", func(r *fakeRPC) { r.receipt = &Receipt{Status: 1, BlockNumber: 1005} },
 			ports.TxStatus{State: domain.TxConfirmed, BlockHeight: 1005, Confirmations: 1}, ""},
 		{"head unavailable", func(r *fakeRPC) { r.receipt, r.headErr = &Receipt{Status: 1, BlockNumber: 990}, boom },
