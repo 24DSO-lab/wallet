@@ -119,3 +119,20 @@ func TestConservativeFeeRate(t *testing.T) {
 		t.Fatalf("NaN estimate must be rejected, got %v", err)
 	}
 }
+
+func TestEsploraHasSpentOutputs(t *testing.T) {
+	txid := strings.Repeat("cd", 32)
+	for _, tc := range []struct { name, body string; want bool }{
+		{name:"all outputs unspent",body:`[{"spent":false},{"spent":false}]`,want:false},
+		{name:"spent output",body:`[{"spent":false},{"spent":true,"txid":"`+strings.Repeat("ab",32)+`","status":{"confirmed":false}}]`,want:true},
+	} {
+		t.Run(tc.name,func(t *testing.T){
+			p:=&recordingProvider{response:provider.Response{Status:http.StatusOK,Body:[]byte(tc.body)}}
+			api,_:=NewEsplora(p,domain.ProfileTest)
+			got,err:=api.HasSpentOutputs(context.Background(),txid)
+			if err!=nil { t.Fatal(err) }
+			if got!=tc.want { t.Fatalf("HasSpentOutputs = %v, want %v",got,tc.want) }
+			if len(p.requests)!=1 || p.requests[0].Path!="/tx/"+txid+"/outspends" { t.Fatalf("unexpected request: %+v",p.requests) }
+		})
+	}
+}
