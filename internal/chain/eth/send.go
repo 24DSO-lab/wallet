@@ -106,9 +106,9 @@ func (a *Adapter) Status(ctx context.Context, id domain.TxID) (ports.TxStatus, e
 		if !known {
 			return ports.TxStatus{}, domain.NewError(domain.CodeNotFound, errors.New("eth: the node does not know this transaction"))
 		}
-		return ports.TxStatus{State: domain.TxPending}, nil
+		return ports.TxStatus{State: domain.TxPending, Known: true}, nil
 	}
-	st := ports.TxStatus{State: domain.TxConfirmed, BlockHeight: rec.BlockNumber, Confirmations: 1}
+	st := ports.TxStatus{State: domain.TxConfirmed, Known: true, BlockHeight: rec.BlockNumber, Confirmations: 1}
 	if rec.Status == 0 {
 		st.State = domain.TxFailed
 	}
