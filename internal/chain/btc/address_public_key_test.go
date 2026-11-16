@@ -56,6 +56,7 @@ func TestAddressFromPublicKeyRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	uncompressed := valid.Uncompressed()
+	compressed := valid.Compressed()
 
 	tests := []struct {
 		name    string
@@ -63,7 +64,7 @@ func TestAddressFromPublicKeyRejectsInvalidInput(t *testing.T) {
 		pub     []byte
 	}{
 		{name: "invalid profile", profile: "unknown", pub: uncompressed[:]},
-		{name: "compressed key", profile: domain.ProfileTest, pub: valid.Compressed()[:]},
+		{name: "compressed key", profile: domain.ProfileTest, pub: compressed[:]},
 		{name: "invalid point", profile: domain.ProfileTest, pub: make([]byte, secp256k1.PubKeyUncompressedLen)},
 		{name: "empty key", profile: domain.ProfileTest},
 	}
