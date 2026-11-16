@@ -560,9 +560,9 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 }
 
 // ConfirmSend re-verifies the exact draft immediately before signing, then
-// stores the signed transaction before broadcasting. If broadcast has an
-// ambiguous result, the pending record is deliberately retained for later
-// reconciliation; this method never blindly retries a non-idempotent send.
+// stores the signed transaction and unsigned draft before broadcasting. The
+// recovery record remains until confirmation so an accepted BTC transaction
+// can be replaced by fee; ambiguous broadcasts are never blindly retried.
 // Password and passphrase are consumed and wiped by this method.
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
 	s.sendMu.Lock()
