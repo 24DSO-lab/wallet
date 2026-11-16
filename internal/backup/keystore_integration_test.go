@@ -11,7 +11,6 @@ import (
 	"github.com/24DSO-lab/wallet/internal/keystore"
 	"github.com/24DSO-lab/wallet/internal/ports"
 	"github.com/24DSO-lab/wallet/internal/secret"
-	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/store"
 )
 
