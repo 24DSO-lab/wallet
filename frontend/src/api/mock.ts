@@ -1,3 +1,175 @@
-import type { Api, Asset, Profile, Wallet, Tx, Quote, Balance } from './types'
-const wait=(n=150)=>new Promise<void>(r=>setTimeout(r,n));const stamp=()=>new Date().toISOString();const bal=(asset:Asset,amount:string,decimals:number,network:string):Balance=>({asset,amount,decimals,network,updatedAt:stamp()})
-export function mockApi():Api{let locked=true;let net:Profile='test';let timeout=5;let items:Wallet[]=[{id:'demo',name:'Основной кошелёк',balances:[bal('BTC','125000000',8,'Bitcoin'),bal('ETH','2400000000000000000',18,'Ethereum'),bal('USDC','12550000',6,'Ethereum'),bal('USDT','85000000',6,'TRON')]}];let txs:Tx[]=[];const guard=()=>{if(locked)throw Error('SESSION_LOCKED')};return{async session(){await wait();return{locked,profile:net,timeout}},async keepAlive(){guard()},async unlock(p){await wait();if(!p)throw Error('INVALID_PASSWORD');locked=false},async lock(){locked=true},async wallets(){await wait();guard();return structuredClone(items)},async refresh(id,a){await wait();guard();const wallet=items.find(w=>w.id===id);if(!wallet)throw Error('WALLET_NOT_FOUND');return wallet.balances.find(b=>b.asset===a)??bal(a,'0',a==='BTC'?8:a==='ETH'?18:6,a==='BTC'?'Bitcoin':a==='USDT'?'TRON':'Ethereum')},async create(name){await wait(300);guard();const w={id:crypto.randomUUID(),name,balances:[]};items=[...items,w];return w},async prepareWallet(name,words){await wait();guard();if(!name.trim()||(words!==12&&words!==24))throw Error('INVALID_MNEMONIC_LENGTH');return{mnemonic:'abandon ability able about above absent absorb abstract absurd abuse access accident',challengePositions:[0,3,11]}},async confirmCreateWallet(name,password,passphrase,positions,answers){await wait(300);guard();void passphrase;const phrase='abandon ability able about above absent absorb abstract absurd abuse access accident'.split(' ');if(password.length<10||positions.length!==3||answers.length!==3||!positions.every((p,i)=>[0,3,11][i]===p&&phrase[p]===answers[i]?.trim().toLowerCase()))throw Error('MNEMONIC_CHALLENGE_FAILED');const wallet={id:crypto.randomUUID(),name,balances:[]};items=[...items,wallet];return wallet},async cancelCreateWallet(){await wait()},async importWallet(name){await wait(300);guard();const wallet={id:crypto.randomUUID(),name,balances:[]};items=[...items,wallet];return wallet},async receive(_id,a){guard();await wait();return a==='BTC'?'tb1qtestaddress000000000000000000000000000':a==='USDT'?'TQn9Y2khDD95J42FQtQTdwVVRx9h6f8z5D':'0x742d35Cc6634C0532925a3b844Bc454e4438f44e'},async history(_id,a){guard();await wait();return txs.filter(t=>!a||t.asset===a)},async prepare(_id,a,to,amount):Promise<Quote>{guard();await wait();if(!to.trim()||!/^\d+(\.\d+)?$/.test(amount)||!/[1-9]/.test(amount))throw Error('INVALID_SEND');return{draftId:crypto.randomUUID(),asset:a,network:a==='BTC'?'Bitcoin testnet':a==='USDT'?'TRON Nile':'Ethereum Sepolia',recipient:to,amount,fee:a==='BTC'?'0.00001':'0.000021',feeAsset:a==='USDC'?'ETH':a==='USDT'?'TRX':a,total:amount,warnings:[]}},async prepareRBF(){guard();throw Error('RBF_UNAVAILABLE_IN_MOCK')},async confirm(){guard();await wait(400);txs=[{id:crypto.randomUUID(),asset:'BTC',direction:'out',amount:'1000000',fee:'1000',status:'pending',timestamp:stamp(),address:'mock-recipient'},...txs]},async profile(p){net=p},async timeout(n){timeout=n},async rename(id,name){items=items.map(w=>w.id===id?{...w,name}:w)},async backup(p){guard();if(!p)throw Error('INVALID_PASSWORD');await wait();return true},async restoreBackup(p){guard();if(!p)throw Error('INVALID_PASSWORD');await wait();return true},async changePassword(oldPassword,newPassword){guard();if(!oldPassword||newPassword.length<10)throw Error('INVALID_PASSWORD');await wait()},async revealSeed(id,password,passphrase){guard();void passphrase;if(!password||!items.some(w=>w.id===id))throw Error('INVALID_PASSWORD');await wait();return 'abandon ability able about above absent absorb abstract absurd abuse access accident'},async deleteWallet(id,confirmedName,password,passphrase){guard();void passphrase;const wallet=items.find(w=>w.id===id);if(!wallet||wallet.name!==confirmedName||!password)throw Error('DELETE_CONFIRMATION_FAILED');items=items.filter(w=>w.id!==id);await wait()}}}
+import type { Api, Asset, WalletAsset, Profile, Wallet, Tx, Quote, Balance } from './types'
+
+const wait = (ms = 150) => new Promise<void>(resolve => setTimeout(resolve, ms))
+const stamp = () => new Date().toISOString()
+const decimals = (asset: Asset) => asset === 'BTC' ? 8 : asset === 'ETH' ? 18 : 6
+const network = (asset: Asset) => asset === 'BTC' ? 'Bitcoin' : asset === 'ETH' || asset === 'USDC' ? 'Ethereum' : 'TRON'
+const bal = (asset: Asset, amount: string, updatedAt = stamp()): Balance => ({
+  asset, amount, decimals: decimals(asset), network: network(asset), updatedAt,
+})
+
+export function mockApi(): Api {
+  let locked = true
+  let net: Profile = 'test'
+  let timeout = 5
+  let items: Wallet[] = [{
+    id: 'demo',
+    name: 'Основной кошелёк',
+    balances: [
+      bal('BTC', '125000000'),
+      bal('ETH', '2400000000000000000'),
+      bal('USDC', '12550000'),
+      bal('USDT', '85000000'),
+      bal('TRX', '25000000'),
+    ],
+  }]
+  let txs: Tx[] = []
+  const guard = () => {
+    if (locked) throw Error('SESSION_LOCKED')
+  }
+
+  return {
+    async session() {
+      await wait()
+      return { locked, profile: net, timeout }
+    },
+    async keepAlive() { guard() },
+    async unlock(password) {
+      await wait()
+      if (!password) throw Error('INVALID_PASSWORD')
+      locked = false
+    },
+    async lock() { locked = true },
+    async wallets() {
+      await wait()
+      guard()
+      return structuredClone(items)
+    },
+    async refresh(id, asset) {
+      await wait()
+      guard()
+      const wallet = items.find(item => item.id === id)
+      if (!wallet) throw Error('WALLET_NOT_FOUND')
+      const existing = wallet.balances.find(balance => balance.asset === asset)
+      if (existing) return structuredClone(existing)
+      const fresh = bal(asset, '0')
+      wallet.balances = [...wallet.balances, fresh]
+      return structuredClone(fresh)
+    },
+    async create(name) {
+      await wait(300)
+      guard()
+      const wallet: Wallet = { id: crypto.randomUUID(), name, balances: [] }
+      items = [...items, wallet]
+      return structuredClone(wallet)
+    },
+    async prepareWallet(name, words) {
+      await wait()
+      guard()
+      if (!name.trim() || (words !== 12 && words !== 24)) throw Error('INVALID_MNEMONIC_LENGTH')
+      return {
+        mnemonic: 'abandon ability able about above absent absorb abstract absurd abuse access accident',
+        challengePositions: [0, 3, 11],
+      }
+    },
+    async confirmCreateWallet(name, password, passphrase, positions, answers) {
+      await wait(300)
+      guard()
+      void passphrase
+      const phrase = 'abandon ability able about above absent absorb abstract absurd abuse access accident'.split(' ')
+      if (password.length < 10 || positions.length !== 3 || answers.length !== 3 ||
+        !positions.every((position, index) => [0, 3, 11][index] === position && phrase[position] === answers[index]?.trim().toLowerCase())) {
+        throw Error('MNEMONIC_CHALLENGE_FAILED')
+      }
+      const wallet: Wallet = { id: crypto.randomUUID(), name, balances: [] }
+      items = [...items, wallet]
+      return structuredClone(wallet)
+    },
+    async cancelCreateWallet() { await wait() },
+    async importWallet(name) {
+      await wait(300)
+      guard()
+      const wallet: Wallet = { id: crypto.randomUUID(), name, balances: [] }
+      items = [...items, wallet]
+      return structuredClone(wallet)
+    },
+    async receive(_id, asset) {
+      guard()
+      await wait()
+      if (asset === 'BTC') return 'tb1qtestaddress000000000000000000000000000'
+      if (asset === 'USDT' || asset === 'TRX') return 'TQn9Y2khDD95J42FQtQTdwVVRx9h6f8z5D'
+      return '0x742d35Cc6634C0532925a3b844Bc454e4438f44e'
+    },
+    async history(_id, asset) {
+      guard()
+      await wait()
+      return txs.filter(tx => !asset || tx.asset === asset)
+    },
+    async prepare(_id, asset: WalletAsset, to, amount): Promise<Quote> {
+      guard()
+      await wait()
+      if (!to.trim() || !/^\\d+(\\.\\d+)?$/.test(amount) || !/[1-9]/.test(amount)) throw Error('INVALID_SEND')
+      return {
+        draftId: crypto.randomUUID(),
+        asset,
+        network: asset === 'BTC' ? 'Bitcoin testnet' : asset === 'USDT' ? 'TRON Nile' : 'Ethereum Sepolia',
+        recipient: to,
+        amount,
+        fee: asset === 'BTC' ? '0.00001' : '0.000021',
+        feeAsset: asset === 'USDC' ? 'ETH' : asset === 'USDT' ? 'TRX' : asset,
+        total: amount,
+        warnings: [],
+      }
+    },
+    async prepareRBF() {
+      guard()
+      throw Error('RBF_UNAVAILABLE_IN_MOCK')
+    },
+    async confirm() {
+      guard()
+      await wait(400)
+      txs = [{
+        id: crypto.randomUUID(), asset: 'BTC', direction: 'out',
+        amount: '1000000', fee: '1000', status: 'pending',
+        timestamp: stamp(), address: 'mock-recipient',
+      }, ...txs]
+    },
+    async profile(profile) { net = profile },
+    async timeout(minutes) { timeout = minutes },
+    async rename(id, name) {
+      items = items.map(wallet => wallet.id === id ? { ...wallet, name } : wallet)
+    },
+    async backup(password) {
+      guard()
+      if (!password) throw Error('INVALID_PASSWORD')
+      await wait()
+      return true
+    },
+    async restoreBackup(password) {
+      guard()
+      if (!password) throw Error('INVALID_PASSWORD')
+      await wait()
+      return true
+    },
+    async changePassword(oldPassword, newPassword) {
+      guard()
+      if (!oldPassword || newPassword.length < 10) throw Error('INVALID_PASSWORD')
+      await wait()
+    },
+    async revealSeed(id, password, passphrase) {
+      guard()
+      void passphrase
+      if (!password || !items.some(wallet => wallet.id === id)) throw Error('INVALID_PASSWORD')
+      await wait()
+      return 'abandon ability able about above absent absorb abstract absurd abuse access accident'
+    },
+    async deleteWallet(id, confirmedName, password, passphrase) {
+      guard()
+      void passphrase
+      const wallet = items.find(item => item.id === id)
+      if (!wallet || wallet.name !== confirmedName || !password) throw Error('DELETE_CONFIRMATION_FAILED')
+      items = items.filter(item => item.id !== id)
+      await wait()
+    },
+  }
+}
