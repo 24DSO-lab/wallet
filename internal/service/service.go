@@ -73,7 +73,8 @@ type Service struct {
 	now       func() time.Time
 	newID     func() (string, error)
 	lifecycle sync.Mutex
-	sendMu    sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
+	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
+	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
 }
 
 // New validates and copies all dependencies. A chain map entry must be keyed
@@ -518,6 +519,8 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	}
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
+	// Resolve previously ambiguous sends before deciding whether a new send is safe.
+	_, _ = s.ReconcilePending(ctx)
 	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -649,6 +652,8 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // remaining records from being checked. The signed Raw payload is never
 // logged or returned.
 func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list pending transactions: %w", err)
