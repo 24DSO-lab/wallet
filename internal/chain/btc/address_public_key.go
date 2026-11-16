@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	//nolint:gosec,staticcheck // Bitcoin HASH160 mandates RIPEMD-160; it is not used as a password hash.\n\t"golang.org/x/crypto/ripemd160"
+	//nolint:gosec,staticcheck // Bitcoin HASH160 mandates RIPEMD-160; it is not used as a password hash.
+	"golang.org/x/crypto/ripemd160"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/hd/secp256k1"
