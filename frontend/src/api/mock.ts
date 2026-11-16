@@ -18,6 +18,7 @@ export function mockApi(): Api {
   let locked = true
   let net: Profile = 'test'
   let timeout = 5
+  let etherscanConfigured = false
   let items: Wallet[] = [{
     id: 'demo',
     name: 'Основной кошелёк',
@@ -36,6 +37,9 @@ export function mockApi(): Api {
   }
 
   return {
+    async providerSettings() { await wait(); guard(); return { etherscanAPIKeyConfigured: etherscanConfigured } },
+    async saveEtherscanAPIKey(key) { await wait(); guard(); if (!key.trim()) throw Error('INVALID_INPUT'); etherscanConfigured = true },
+    async deleteEtherscanAPIKey() { await wait(); guard(); etherscanConfigured = false },
     async session() {
       await wait()
       return { locked, profile: net, timeout }
