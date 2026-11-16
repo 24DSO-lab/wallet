@@ -276,8 +276,8 @@ func (a *App) ConfirmCreateWallet(name, password, passphrase string, positions [
 		return WalletDTO{}, err
 	}
 	name = strings.TrimSpace(name)
-	if len(password) < 10 {
-		return WalletDTO{}, domain.NewError(domain.CodeInvalidInput, errors.New("password must contain at least 10 characters"))
+	if err := validatePassword(password); err != nil {
+		return WalletDTO{}, err
 	}
 
 	a.mu.Lock()
@@ -375,8 +375,11 @@ func (a *App) ImportWallet(name, mnemonic, password, passphrase string) (WalletD
 	if err := a.requireUnlocked(); err != nil {
 		return WalletDTO{}, err
 	}
-	if password == "" || mnemonic == "" {
-		return WalletDTO{}, errors.New("invalid_input")
+	if err := validatePassword(password); err != nil {
+		return WalletDTO{}, err
+	}
+	if strings.TrimSpace(mnemonic) == "" {
+		return WalletDTO{}, domain.NewError(domain.CodeInvalidInput, errors.New("mnemonic is required"))
 	}
 	w, err := a.svc.ImportWallet(a.context(), name, secret.FromString(mnemonic), ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	if err != nil {
@@ -401,8 +404,8 @@ func (a *App) ChangePassword(oldPassword, newPassword string) error {
 	if err := a.requireUnlocked(); err != nil {
 		return err
 	}
-	if len(newPassword) < 10 {
-		return domain.NewError(domain.CodeInvalidInput, errors.New("password must contain at least 10 characters"))
+	if err := validatePassword(newPassword); err != nil {
+		return err
 	}
 	if err := a.svc.ChangePassword(a.context(), secret.FromString(oldPassword), secret.FromString(newPassword)); err != nil {
 		return safeError(err)
@@ -812,6 +815,13 @@ func safeError(err error) error {
 		return nil
 	}
 	return errors.New(string(domain.CodeOf(err)))
+}
+
+func validatePassword(password string) error {
+	if len(password) < 10 {
+		return domain.NewError(domain.CodeInvalidInput, errors.New("password must contain at least 10 characters"))
+	}
+	return nil
 }
 
 func (a *App) Shutdown(context.Context) { a.Lock() }
