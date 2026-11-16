@@ -117,3 +117,25 @@ func TestTransactionExplorerURLRejectsMissingTransactionID(t *testing.T) {
 		t.Fatalf("expected empty URL for missing txid, got %q", got)
 	}
 }
+
+
+func TestValidatePasswordMinimumLength(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{name: "empty", password: "", wantErr: true},
+		{name: "too short", password: "123456789", wantErr: true},
+		{name: "minimum", password: "1234567890", wantErr: false},
+		{name: "longer", password: "a-stronger-password", wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePassword(tt.password)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validatePassword() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
