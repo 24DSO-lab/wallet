@@ -101,6 +101,7 @@ func cloneMemoryState(src *memoryState) *memoryState {
 	}
 	for k, v := range src.pending {
 		v.Raw = append([]byte(nil), v.Raw...)
+		v.Draft = append([]byte(nil), v.Draft...)
 		dst.pending[k] = v
 	}
 	return dst
@@ -401,6 +402,7 @@ func (r memoryPendingRepo) Put(ctx context.Context, p ports.PendingTx) error {
 	r.m.mu.Lock()
 	defer r.m.mu.Unlock()
 	p.Raw = append([]byte(nil), p.Raw...)
+	p.Draft = append([]byte(nil), p.Draft...)
 	r.m.s.pending[p.TxID] = p
 	return nil
 }
@@ -416,6 +418,7 @@ func (r memoryPendingRepo) Get(ctx context.Context, id domain.TxID) (ports.Pendi
 		return ports.PendingTx{}, fmt.Errorf("pending transaction: %w", domain.ErrNotFound)
 	}
 	p.Raw = append([]byte(nil), p.Raw...)
+	p.Draft = append([]byte(nil), p.Draft...)
 	return p, nil
 }
 
@@ -428,6 +431,7 @@ func (r memoryPendingRepo) List(ctx context.Context) ([]ports.PendingTx, error) 
 	out := make([]ports.PendingTx, 0, len(r.m.s.pending))
 	for _, p := range r.m.s.pending {
 		p.Raw = append([]byte(nil), p.Raw...)
+		p.Draft = append([]byte(nil), p.Draft...)
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
