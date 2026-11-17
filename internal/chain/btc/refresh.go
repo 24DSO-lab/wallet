@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	AddressGapLimit = 20
-	MaxAddressScan  = 10000
+	AddressGapLimit             = 20
+	MaxAddressScan              = 10000
+	maxConcurrentAddressLookups = 4
 )
 
 var (
@@ -124,6 +126,16 @@ func (s *Scanner) Refresh(ctx context.Context, wallet domain.PublicWallet, asset
 }
 
 func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, chain domain.AddressChain, tip uint64) ([]domain.Address, *big.Int, *big.Int, []domain.UTXO, []EsploraTx, error) {
+	type derivedAddress struct {
+		address string
+		path    string
+		index   uint32
+	}
+	type addressResult struct {
+		info AddressInfo
+		err  error
+	}
+
 	addresses := make([]domain.Address, 0, s.gap+1)
 	confirmed := new(big.Int)
 	pending := new(big.Int)
@@ -132,88 +144,114 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 	seenTx := make(map[string]struct{})
 	var gap uint32
 
-	for index := uint32(0); index < s.maxScan; index++ {
-		address, path, err := s.derive.DeriveAddress(wallet.BTCXpub, s.profile, chain, index)
-		if err != nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("%w: %w", ErrAddressDerivation, err)
+	// Fetch small contiguous batches concurrently, but always consume results
+	// in derivation order so the BIP84 gap limit remains exact.
+	for first := uint32(0); first < s.maxScan; {
+		batchSize := uint32(maxConcurrentAddressLookups)
+		if remaining := s.maxScan - first; batchSize > remaining {
+			batchSize = remaining
 		}
-		if err := ValidateAddress(s.profile, address); err != nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("%w: derived address failed network validation", ErrAddressDerivation)
-		}
-		info, err := s.api.GetAddress(ctx, address)
-		if err != nil {
-			return nil, nil, nil, nil, nil, err
-		}
-		used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
-			info.MempoolStats.Funded != 0 || info.MempoolStats.Spent != 0
-		addresses = append(addresses, domain.Address{
-			WalletID: wallet.ID, Network: domain.NetworkBitcoin, Address: address,
-			Path: path, Chain: chain, Index: index, Used: used,
-		})
-
-		chainNet := new(big.Int).SetUint64(info.ChainStats.Funded)
-		chainNet.Sub(chainNet, new(big.Int).SetUint64(info.ChainStats.Spent))
-		mempoolNet := new(big.Int).SetUint64(info.MempoolStats.Funded)
-		mempoolNet.Sub(mempoolNet, new(big.Int).SetUint64(info.MempoolStats.Spent))
-		confirmed.Add(confirmed, chainNet)
-		if mempoolNet.Sign() < 0 {
-			confirmed.Add(confirmed, mempoolNet)
-		} else {
-			pending.Add(pending, mempoolNet)
-		}
-
-		if used {
-			addressUTXOs, err := s.api.GetUTXOs(ctx, address)
+		batch := make([]derivedAddress, batchSize)
+		for i := range batch {
+			index := first + uint32(i)
+			address, path, err := s.derive.DeriveAddress(wallet.BTCXpub, s.profile, chain, index)
 			if err != nil {
-				return nil, nil, nil, nil, nil, err
+				return nil, nil, nil, nil, nil, fmt.Errorf("%w: %w", ErrAddressDerivation, err)
 			}
-			for _, u := range addressUTXOs {
-				confirmations := uint32(0)
-				if u.Status.Confirmed {
-					if u.Status.BlockHeight == 0 || u.Status.BlockHeight > tip {
-						return nil, nil, nil, nil, nil, ErrMalformedResponse
-					}
-					depth := tip - u.Status.BlockHeight + 1
-					if depth > uint64(^uint32(0)) {
-						confirmations = ^uint32(0)
-					} else {
-						confirmations = uint32(depth)
-					}
-				}
-				utxos = append(utxos, domain.UTXO{
-					WalletID: wallet.ID, TxID: domain.TxID(u.TxID), Vout: u.Vout,
-					Address: address, Amount: domain.AmountFromUint64(u.Value),
-					Confirmations: confirmations, Spent: false,
-				})
+			if err := ValidateAddress(s.profile, address); err != nil {
+				return nil, nil, nil, nil, nil, fmt.Errorf("%w: derived address failed network validation", ErrAddressDerivation)
+			}
+			batch[i] = derivedAddress{address: address, path: path, index: index}
+		}
+
+		results := make([]addressResult, len(batch))
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i].info, results[i].err = s.api.GetAddress(ctx, batch[i].address)
+			}(i)
+		}
+		wg.Wait()
+
+		for i, item := range batch {
+			if results[i].err != nil {
+				return nil, nil, nil, nil, nil, results[i].err
+			}
+			info := results[i].info
+			used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
+				info.MempoolStats.Funded != 0 || info.MempoolStats.Spent != 0
+			addresses = append(addresses, domain.Address{
+				WalletID: wallet.ID, Network: domain.NetworkBitcoin, Address: item.address,
+				Path: item.path, Chain: chain, Index: item.index, Used: used,
+			})
+
+			chainNet := new(big.Int).SetUint64(info.ChainStats.Funded)
+			chainNet.Sub(chainNet, new(big.Int).SetUint64(info.ChainStats.Spent))
+			mempoolNet := new(big.Int).SetUint64(info.MempoolStats.Funded)
+			mempoolNet.Sub(mempoolNet, new(big.Int).SetUint64(info.MempoolStats.Spent))
+			confirmed.Add(confirmed, chainNet)
+			if mempoolNet.Sign() < 0 {
+				confirmed.Add(confirmed, mempoolNet)
+			} else {
+				pending.Add(pending, mempoolNet)
 			}
 
-			pageCursor := ""
-			for {
-				page, err := s.api.GetTransactions(ctx, address, pageCursor)
+			if used {
+				addressUTXOs, err := s.api.GetUTXOs(ctx, item.address)
 				if err != nil {
 					return nil, nil, nil, nil, nil, err
 				}
-				for _, tx := range page {
-					if _, exists := seenTx[tx.TxID]; !exists {
-						seenTx[tx.TxID] = struct{}{}
-						txs = append(txs, tx)
+				for _, u := range addressUTXOs {
+					confirmations := uint32(0)
+					if u.Status.Confirmed {
+						if u.Status.BlockHeight == 0 || u.Status.BlockHeight > tip {
+							return nil, nil, nil, nil, nil, ErrMalformedResponse
+						}
+						depth := tip - u.Status.BlockHeight + 1
+						if depth > uint64(^uint32(0)) {
+							confirmations = ^uint32(0)
+						} else {
+							confirmations = uint32(depth)
+						}
 					}
+					utxos = append(utxos, domain.UTXO{
+						WalletID: wallet.ID, TxID: domain.TxID(u.TxID), Vout: u.Vout,
+						Address: item.address, Amount: domain.AmountFromUint64(u.Value),
+						Confirmations: confirmations, Spent: false,
+					})
 				}
-				if len(page) < 25 {
-					break
-				}
-				pageCursor = page[len(page)-1].TxID
-			}
-		}
 
-		if used {
-			gap = 0
-		} else {
-			gap++
-			if gap >= s.gap {
-				return addresses, confirmed, pending, utxos, txs, nil
+				pageCursor := ""
+				for {
+					page, err := s.api.GetTransactions(ctx, item.address, pageCursor)
+					if err != nil {
+						return nil, nil, nil, nil, nil, err
+					}
+					for _, tx := range page {
+						if _, exists := seenTx[tx.TxID]; !exists {
+							seenTx[tx.TxID] = struct{}{}
+							txs = append(txs, tx)
+						}
+					}
+					if len(page) < 25 {
+						break
+					}
+					pageCursor = page[len(page)-1].TxID
+				}
+			}
+
+			if used {
+				gap = 0
+			} else {
+				gap++
+				if gap >= s.gap {
+					return addresses, confirmed, pending, utxos, txs, nil
+				}
 			}
 		}
+		first += batchSize
 	}
 	return nil, nil, nil, nil, nil, ErrAddressScanLimit
 }
