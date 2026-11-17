@@ -126,8 +126,10 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 	}
 
 	btcClient, err := provider.New(provider.Options{
-		Endpoints: cfg.Providers[config.ProviderBTC].All(),
-		Redactor:  logging.NewRedactor(r.keys.Values()...),
+		Endpoints:    cfg.Providers[config.ProviderBTC].All(),
+		Timeout:      5 * time.Second,
+		MaxAttempts:  1, // fail over quickly instead of retrying a slow explorer several times
+		Redactor:     logging.NewRedactor(r.keys.Values()...),
 	})
 	if err != nil {
 		return profileRuntime{}, fmt.Errorf("configure Bitcoin provider: %w", err)
