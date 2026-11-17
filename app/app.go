@@ -26,6 +26,7 @@ import (
 
 const defaultLockTimeout = 5 * time.Minute
 const btcReceiveAddressTimeout = 45 * time.Second
+const btcReceiveLookupTimeout = 20 * time.Second
 
 // Dependencies are supplied by the composition root. Optional callbacks are
 // deliberately explicit: changing the network profile or creating a backup
@@ -480,19 +481,15 @@ func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Bitcoin receive addresses are discovered by the BIP84 gap-limit scan;
-	// refresh before asking the address repository for the next unused one.
+	// BTC uses a receive-only BIP84 gap-limit lookup. It must not trigger a
+	// full balance/history/UTXO refresh from this interactive screen.
+	ctx := a.context()
 	if domainAsset == domain.BTC {
-		// A full BIP84 gap-limit scan makes external requests for both receive
-		// and change chains. Bound the Wails call so an unresponsive explorer
-		// cannot leave the receive screen loading indefinitely.
-		ctx, cancel := context.WithTimeout(a.context(), btcReceiveAddressTimeout)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, btcReceiveLookupTimeout)
 		defer cancel()
-		if _, err := a.svc.RefreshWallet(ctx, id, domain.BTC); err != nil {
-			return "", safeError(err)
-		}
 	}
-	address, err := a.svc.GetReceiveAddress(a.context(), id, domainAsset)
+	address, err := a.svc.GetReceiveAddress(ctx, id, domainAsset)
 	if err != nil {
 		return "", safeError(err)
 	}
