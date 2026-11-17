@@ -174,6 +174,30 @@ func TestScannerRefreshStopsAtExactGapLimitWithinBatch(t *testing.T) {
 	}
 }
 
+func TestScannerReceiveAddressUsesReceiveOnlyGapScan(t *testing.T) {
+	used := make(map[string]bool)
+	program := make([]byte, 20)
+	used[testWitnessAddress("tb", program)] = true // index 0 was already used
+	api, err := NewEsplora(&refreshProvider{used: used}, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scanner.ReceiveAddress(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Index != 1 || got.Chain != domain.ChainReceive || got.Used {
+		t.Fatalf("unexpected next receive address: %+v", got)
+	}
+	if got.Path != "m/84'/1'/0'/0/1" {
+		t.Fatalf("unexpected derivation path: %s", got.Path)
+	}
+}
+
 func TestScannerRefreshRejectsMissingXpubAndWrongAsset(t *testing.T) {
 	api, _ := NewEsplora(&refreshProvider{used: map[string]bool{}}, domain.ProfileTest)
 	scanner, _ := NewScanner(api, &fakeDeriver{})
