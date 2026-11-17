@@ -89,3 +89,73 @@ func TestProductionAdaptersMatchIndependentAddressVectors(t *testing.T) {
 		})
 	}
 }
+
+
+// TestProductionAdaptersMatchIndependentPassphraseVectors checks the second
+// published BIP39 vector (same public mnemonic, passphrase TREZOR) through the
+// production address adapters. This catches regressions in passphrase handling
+// as well as chain-specific public-key-to-address conversion.
+func TestProductionAdaptersMatchIndependentPassphraseVectors(t *testing.T) {
+	const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+	seed, err := hd.SeedFromMnemonic(secret.FromString(mnemonic), secret.FromString("TREZOR"))
+	if err != nil {
+		t.Fatalf("derive BIP39 seed: %v", err)
+	}
+	defer seed.Wipe()
+
+	main, err := hd.DerivePublicData(seed, domain.ProfileMain)
+	if err != nil {
+		t.Fatalf("derive mainnet public data: %v", err)
+	}
+	test, err := hd.DerivePublicData(seed, domain.ProfileTest)
+	if err != nil {
+		t.Fatalf("derive testnet public data: %v", err)
+	}
+
+	ethAdapter := &eth.Adapter{}
+	gotETH, err := ethAdapter.AddressFromPublicKey(main.ETHPublicKey[:])
+	if err != nil {
+		t.Fatalf("production ETH adapter: %v", err)
+	}
+	if want := "0x9c32F71D4DB8Fb9e1A58B0a80dF79935e7256FA6"; gotETH != want {
+		t.Errorf("ETH address = %s, want %s", gotETH, want)
+	}
+
+	tronAdapter := &tron.Adapter{}
+	gotTRON, err := tronAdapter.AddressFromPublicKey(main.TronPublicKey[:])
+	if err != nil {
+		t.Fatalf("production TRON adapter: %v", err)
+	}
+	if want := "TAyDUYP5rcf56xFwrg8cU1qQwvnWpkeapM"; gotTRON != want {
+		t.Errorf("TRON address = %s, want %s", gotTRON, want)
+	}
+
+	deriver := btc.HDAddressDeriver{}
+	for _, tc := range []struct {
+		name, xpub string
+		profile    domain.Profile
+		want       string
+	}{
+		{"main receive 0", main.BTCXpub, domain.ProfileMain, "bc1qv5rmq0kt9yz3pm36wvzct7p3x6mtgehjul0feu"},
+		{"test receive 0", test.BTCXpub, domain.ProfileTest, "tb1qfwxzlmn42rh6wu6gt4f0yrfpe4gf0jtwgxagrr"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, path, err := deriver.DeriveAddress(tc.xpub, tc.profile, domain.ChainReceive, 0)
+			if err != nil {
+				t.Fatalf("production BTC adapter: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("BTC address = %s, want %s", got, tc.want)
+			}
+			if want := "m/84'/0'/0'/0/0"; tc.profile == domain.ProfileMain && path != want {
+				t.Errorf("BTC path = %s, want %s", path, want)
+			}
+			if want := "m/84'/1'/0'/0/0"; tc.profile == domain.ProfileTest && path != want {
+				t.Errorf("BTC path = %s, want %s", path, want)
+			}
+			if err := btc.ValidateAddress(tc.profile, got); err != nil {
+				t.Errorf("production BTC address failed validation: %v", err)
+			}
+		})
+	}
+}
