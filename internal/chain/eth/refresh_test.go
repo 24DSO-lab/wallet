@@ -256,6 +256,7 @@ func TestUSDCHistoryAggregatesPerHash(t *testing.T) {
 		{"net incoming", []IndexedTransfer{in(10), out(3)}, domain.DirectionIn, "7"},
 		{"balanced", []IndexedTransfer{in(5), out(5)}, domain.DirectionSelf, "5"},
 		{"to self", []IndexedTransfer{transfer(hash1, own, own, 9, 1700000000)}, domain.DirectionSelf, "9"},
+		{"multiple self transfers", []IndexedTransfer{transfer(hash1, own, own, 9, 1700000000), transfer(hash1, own, own, 4, 1700000000)}, domain.DirectionSelf, "13"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

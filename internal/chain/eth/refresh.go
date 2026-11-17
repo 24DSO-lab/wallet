@@ -245,13 +245,12 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 	}
 
 	type agg struct {
-		in, out     big.Int
+		in, out, self big.Int
 		counterIn   Address
 		counterOut  Address
 		onlySelf    bool
 		block       uint64
 		time        IndexedTransfer
-		haveCounter bool
 	}
 	order := make([]string, 0, len(transfers))
 	groups := make(map[string]*agg, len(transfers))
@@ -271,20 +270,15 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		switch {
 		case tr.From == own && tr.To == own:
 			// перевод себе не меняет баланс, но запись о нём нужна
-			if g.in.Sign() == 0 && g.out.Sign() == 0 {
-				g.in.Set(tr.Value)
-				g.out.Set(tr.Value)
-			}
+			g.self.Add(&g.self, tr.Value)
 		case tr.To == own:
 			g.onlySelf = false
 			g.in.Add(&g.in, tr.Value)
 			g.counterIn = tr.From
-			g.haveCounter = true
 		default:
 			g.onlySelf = false
 			g.out.Add(&g.out, tr.Value)
 			g.counterOut = tr.To
-			g.haveCounter = true
 		}
 	}
 
@@ -304,7 +298,7 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		switch {
 		case g.onlySelf:
 			rec.Direction = domain.DirectionSelf
-			net = new(big.Int).Set(&g.in)
+			net = new(big.Int).Set(&g.self)
 		case net.Sign() > 0:
 			rec.Direction = domain.DirectionIn
 			rec.Counterparty = g.counterIn.String()
