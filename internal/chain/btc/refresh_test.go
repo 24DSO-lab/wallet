@@ -200,6 +200,32 @@ func TestScannerReceiveAddressUsesReceiveOnlyGapScan(t *testing.T) {
 }
 
 
+func TestScannerReceiveAddressUsesSlidingWindowAndOrderedGapLimit(t *testing.T) {
+	used := make(map[string]bool)
+	// Index 2 is used, although later requests may complete before it.
+	program := make([]byte, 20)
+	program[0] = 2
+	used[testWitnessAddress("tb", program)] = true
+	base := &refreshProvider{used: used}
+	p := &concurrentRefreshProvider{refreshProvider: base}
+	api, err := NewEsplora(p, domain.ProfileTest)
+	if err != nil { t.Fatal(err) }
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil { t.Fatal(err) }
+
+	got, err := scanner.ReceiveAddress(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"})
+	if err != nil { t.Fatal(err) }
+	if got.Index != 3 || got.Used {
+		t.Fatalf("got receive index %d, want first unused index 3 after used index 2", got.Index)
+	}
+	p.mu.Lock()
+	max := p.max
+	p.mu.Unlock()
+	if max < 2 || max > maxConcurrentAddressLookups {
+		t.Fatalf("sliding window concurrency = %d, want 2..%d", max, maxConcurrentAddressLookups)
+	}
+}
+
 func TestScannerRefreshErrorIncludesAddressContext(t *testing.T) {
 	wantErr := errors.New("explorer unavailable")
 	p := &failingAddressProvider{refreshProvider: &refreshProvider{used: map[string]bool{}}, err: wantErr}
