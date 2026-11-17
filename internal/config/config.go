@@ -134,7 +134,7 @@ func checkEndpoint(raw string) error {
 func defaultProviders(p domain.Profile) map[Provider]Endpoints {
 	if p == domain.ProfileTest {
 		return map[Provider]Endpoints{
-			ProviderBTC:      {Primary: "https://mempool.space/testnet/api", Fallback: []string{"https://blockstream.info/testnet/api"}},
+			ProviderBTC:      {Primary: "https://mempool.space/testnet4/api", Fallback: []string{"https://blockstream.info/testnet4/api"}},
 			ProviderETHRPC:   {Primary: "https://eth-sepolia.g.alchemy.com/v2"},
 			ProviderETHIndex: {Primary: "https://api-sepolia.etherscan.io/api"},
 			ProviderTron:     {Primary: "https://nile.trongrid.io"},
