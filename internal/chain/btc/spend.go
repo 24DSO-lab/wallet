@@ -456,6 +456,14 @@ func (e *SpendEngine) AddressFromPublicKey([]byte) (string, error) {
 	return "", errors.New("btc: addresses must be derived from the account xpub")
 }
 
+// ReceiveAddress uses the lightweight receive-only BIP84 scan.
+func (e *SpendEngine) ReceiveAddress(ctx context.Context, wallet domain.PublicWallet, asset domain.Asset) (domain.Address, error) {
+	if asset != domain.BTC {
+		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, errors.New("btc: unsupported receive asset"))
+	}
+	return e.scanner.ReceiveAddress(ctx, wallet)
+}
+
 func (e *SpendEngine) Refresh(ctx context.Context, wallet domain.PublicWallet, asset domain.Asset) (ports.Snapshot, error) {
 	return e.scanner.Refresh(ctx, wallet, asset)
 }
