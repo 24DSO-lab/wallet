@@ -228,68 +228,101 @@ func (g *TronGrid) EstimateEnergy(ctx context.Context, owner, contract Addr, cal
 
 // TRC20Transfers: GET /v1/accounts/{address}/transactions/trc20. Подтверждённые
 // и неподтверждённые запрашиваются отдельно, потому что ответ не несёт статуса.
+const maxTransferHistoryPages = 10
+
 func (g *TronGrid) TRC20Transfers(ctx context.Context, contract, owner Addr, limit int) ([]Transfer, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 200
 	}
 	fetch := func(onlyConfirmed bool) ([]Transfer, error) {
 		q := url.Values{
-			"contract_address": {contract.String()}, "limit": {strconv.Itoa(limit)},
-			"only_confirmed": {strconv.FormatBool(onlyConfirmed)}, "order_by": {"block_timestamp,desc"},
+			"contract_address": {contract.String()},
+			"limit":            {strconv.Itoa(limit)},
+			"order_by":         {"block_timestamp,desc"},
 		}
-		var r struct {
-			Data []struct {
-				TransactionID  string `json:"transaction_id"`
-				BlockTimestamp int64  `json:"block_timestamp"`
-				From           string `json:"from"`
-				To             string `json:"to"`
-				Type           string `json:"type"`
-				Value          string `json:"value"`
-				TokenInfo      struct {
-					Address string `json:"address"`
-				} `json:"token_info"`
-			} `json:"data"`
+		if onlyConfirmed {
+			q.Set("only_confirmed", "true")
+		} else {
+			q.Set("only_unconfirmed", "true")
 		}
-		if err := g.get(ctx, "/v1/accounts/"+owner.String()+"/transactions/trc20", pageQuery, &r); err != nil {
-			return nil, err
-		}
-		out := make([]Transfer, 0, len(r.Data))
-		for _, d := range r.Data {
-			// Адрес токена в записи сверяется с ожидаемым: чужой токен с
-			// тем же символом в историю USDT попасть не должен.
-			if d.TokenInfo.Address != contract.String() || d.Type != "Transfer" {
-				continue
+
+		out := make([]Transfer, 0, limit)
+		cursor := ""
+		for page := 0; page < maxTransferHistoryPages; page++ {
+			pageQuery := make(url.Values, len(q)+1)
+			for key, values := range q {
+				pageQuery[key] = append([]string(nil), values...)
 			}
-			if _, err := decodeHex(d.TransactionID, 32); err != nil {
+			if cursor != "" {
+				pageQuery.Set("fingerprint", cursor)
+			}
+			var r struct {
+				Data []struct {
+					TransactionID  string `json:"transaction_id"`
+					BlockTimestamp int64  `json:"block_timestamp"`
+					From           string `json:"from"`
+					To             string `json:"to"`
+					Type           string `json:"type"`
+					Value          string `json:"value"`
+					TokenInfo      struct {
+						Address string `json:"address"`
+					} `json:"token_info"`
+				} `json:"data"`
+				Meta struct {
+					Fingerprint string `json:"fingerprint"`
+				} `json:"meta"`
+			}
+			if err := g.get(ctx, "/v1/accounts/"+owner.String()+"/transactions/trc20", pageQuery, &r); err != nil {
 				return nil, err
 			}
-			from, e1 := ParseAddress(d.From)
-			to, e2 := ParseAddress(d.To)
-			val, e3 := domain.ParseUnits(d.Value)
-			if e1 != nil || e2 != nil || e3 != nil || d.BlockTimestamp <= 0 {
-				return nil, bad("malformed transfer record")
+			for _, d := range r.Data {
+				// Адрес токена в записи сверяется с ожидаемым: чужой токен с
+				// тем же символом в историю USDT попасть не должен.
+				if d.TokenInfo.Address != contract.String() || d.Type != "Transfer" {
+					continue
+				}
+				if _, err := decodeHex(d.TransactionID, 32); err != nil {
+					return nil, err
+				}
+				from, e1 := ParseAddress(d.From)
+				to, e2 := ParseAddress(d.To)
+				val, e3 := domain.ParseUnits(d.Value)
+				if e1 != nil || e2 != nil || e3 != nil || d.BlockTimestamp <= 0 {
+					return nil, bad("malformed transfer record")
+				}
+				out = append(out, Transfer{
+					TxID: strings.ToLower(d.TransactionID), From: from.String(), To: to.String(),
+					Value: val, Time: time.UnixMilli(d.BlockTimestamp), Confirmed: onlyConfirmed,
+				})
 			}
-			out = append(out, Transfer{TxID: strings.ToLower(d.TransactionID), From: from.String(), To: to.String(),
-				Value: val, Time: time.UnixMilli(d.BlockTimestamp), Confirmed: onlyConfirmed})
+			next := r.Meta.Fingerprint
+			if next == "" {
+				return out, nil
+			}
+			if next == cursor {
+				return nil, bad("TRC20 history pagination cursor did not advance")
+			}
+			cursor = next
 		}
-		return out, nil
+		return nil, bad("TRC20 history exceeds the configured page limit")
 	}
-	conf, err := fetch(true)
+
+	confirmed, err := fetch(true)
 	if err != nil {
 		return nil, err
 	}
-	all, err := fetch(false)
+	unconfirmed, err := fetch(false)
 	if err != nil {
 		return nil, err
 	}
-	known := make(map[string]bool, len(conf))
-	for _, t := range conf {
-		known[t.TxID] = true
+	known := make(map[string]bool, len(confirmed))
+	for _, transfer := range confirmed {
+		known[transfer.TxID] = true
 	}
-	out := conf
-	for _, t := range all {
-		if !known[t.TxID] {
-			out = append(out, t) // ещё не подтверждён
+	out := confirmed
+	for _, transfer := range unconfirmed {
+		if !known[transfer.TxID] {
+			out = append(out, transfer)
 		}
 	}
 	return out, nil
