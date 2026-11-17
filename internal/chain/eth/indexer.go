@@ -114,6 +114,9 @@ func (e *Etherscan) rows(ctx context.Context, action string, extra url.Values) (
 		if len(got) < e.pageSize {
 			break
 		}
+		if page == e.maxPages {
+			return nil, badResponse(errors.New("eth: indexer history exceeds the configured page limit"))
+		}
 	}
 	return all, nil
 }

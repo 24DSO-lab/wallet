@@ -163,8 +163,8 @@ func TestIndexerPageCap(t *testing.T) {
 	full := envelope(txRow(hash1, addrB, addrA, "1", "0x"))
 	e, fc := newTestEtherscan(t, full, full, full, full)
 	e.pageSize, e.maxPages = 1, 3
-	if _, err := e.NormalTxs(context.Background(), mustAddr(t, addrA)); err != nil {
-		t.Fatal(err)
+	if _, err := e.NormalTxs(context.Background(), mustAddr(t, addrA)); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("full final page must report truncated history, got %v", err)
 	}
 	if len(fc.reqs) != 3 {
 		t.Errorf("requests = %d, want the page cap 3", len(fc.reqs))
