@@ -34,12 +34,15 @@
 
 Закрыто:
 
-- **Адреса контрактов USDT.** Main `TR7NHq…gjLj6t` совпадает на странице Tether
-  Supported Protocols, на tron.network/usdt и в Tronscan. Nile `TXYZop…VkAeBf`
-  это тестовый USDT, его называют документация BVNK и Turnkey. Tether токен в
-  Nile не выпускает, поэтому официального источника у этого адреса нет:
-  перед гейтом сверить его с токеном, который выдаёт кран Nile. Записано в
-  `USDTSources`, `TestUSDTSourcesRecorded` зелёный.
+- **Адреса контрактов USDT.** Main `TR7NHq…gjLj6t` совпадает с официальной
+  страницей Tether Supported Protocols и Tronscan. Nile `TXYZop…VkAeBf`
+  подтверждён официальной документацией TRON: страница [Getting testnet
+  tokens](https://developers.tron.network/docs/getting-testnet-tokens-on-tron)
+  ведёт на [Nile faucet](https://nileex.io/join/getJoinPage), который выдаёт
+  тестовый USDT этого контракта; официальный [Trident quickstart](https://tronprotocol.github.io/trident/quickstart/getting-started.html)
+  использует тот же адрес. Это только тестовый токен Nile, не mainnet USDT
+  Tether и не имеет денежной стоимости. Записано в `USDTSources`,
+  `TestUSDTSourcesRecorded` проверяет наличие источника и даты.
 - **Лимиты TronGrid** (developers.tron.network/reference/rate-limits, 2026-11-16):
   ключ API нужен на практике, запросы без ключа жёстко ограничиваются или
   отклоняются; ключ передаётся заголовком `TRON-PRO-API-KEY`. Бесплатный

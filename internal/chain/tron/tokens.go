@@ -7,16 +7,15 @@ import "github.com/24DSO-lab/wallet/internal/domain"
 // считает USDT (ADR, «Правила работы с провайдерами»). Тест
 // TestUSDTContractPinned падает при любой правке.
 //
-// Сверка адресов выполнена 2026-11-16 (см. USDTSources). Main подтверждён
-// страницей Tether Supported Protocols, tron.network/usdt и Tronscan. Nile:
-// Tether токен в Nile не выпускает, адрес это тестовый USDT, который
-// перечисляют документация BVNK и Turnkey; перед гейтом сверить с краном Nile
-// (токены, которые он выдаёт, должны быть именно этим контрактом).
+// Сверка адресов выполнена 2026-11-17 (см. USDTSources). Main подтверждён
+// официальной страницей Tether Supported Protocols. Nile подтверждён
+// официальной документацией TRON, которая ведёт на Nile faucet, и примером
+// TRC20 в официальной документации Trident. Это тестовый токен Nile, а не
+// mainnet-контракт Tether; он не имеет денежной стоимости.
 const (
 	// USDTContractMain это USDT на основной сети TRON.
 	USDTContractMain = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
-	// USDTContractNile это тестовый USDT в сети Nile. Tether не выпускает
-	// официальный токен в Nile, адрес берётся из справочника Nile.
+	// USDTContractNile это тестовый USDT, который выдаёт официальный Nile faucet.
 	USDTContractNile = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 )
 
@@ -31,12 +30,12 @@ type ContractSource struct {
 // USDTSources описывает происхождение адресов контрактов.
 var USDTSources = map[domain.Profile]ContractSource{
 	domain.ProfileMain: {
-		Address: USDTContractMain, Source: "https://tether.to/en/supported-protocols/ (раздел Tron, TRC20)", CheckedOn: "2026-11-16",
-		Note: "совпадает на странице Tether, tron.network/usdt и Tronscan",
+		Address: USDTContractMain, Source: "https://tether.to/en/supported-protocols/ (Tron, TRC20)", CheckedOn: "2026-11-17",
+		Note: "совпадает с официальной страницей Tether и Tronscan",
 	},
 	domain.ProfileTest: {
-		Address: USDTContractNile, Source: "тестовый USDT сети Nile; документация BVNK и Turnkey, кран Nile", CheckedOn: "2026-11-16",
-		Note: "официального источника Tether для Nile нет; сверить с токеном из крана Nile перед гейтом",
+		Address: USDTContractNile, Source: "https://developers.tron.network/docs/getting-testnet-tokens-on-tron (официальная ссылка на Nile faucet); https://nileex.io/join/getJoinPage; https://tronprotocol.github.io/trident/quickstart/getting-started.html", CheckedOn: "2026-11-17",
+		Note: "официальный Nile faucet выдаёт тестовый USDT этого контракта; Trident использует тот же адрес. Только тестовый токен, не mainnet USDT",
 	},
 }
 
