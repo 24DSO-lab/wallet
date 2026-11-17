@@ -3,6 +3,10 @@ package tron
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
@@ -76,43 +80,122 @@ func (a *Adapter) Resources(ctx context.Context, w domain.PublicWallet) (Resourc
 // history приводит переводы к domain.Tx. Блок и комиссия запрашиваются у
 // узла только для maxInfoLookups самых новых подтверждённых переводов.
 func (a *Adapter) history(ctx context.Context, walletID string, owner Addr, ts []Transfer) ([]domain.Tx, error) {
-	self := owner.String()
-	out := make([]domain.Tx, 0, len(ts))
-	lookups := 0
-	for _, t := range ts {
-		tx := domain.Tx{
-			WalletID: walletID, Asset: domain.USDT, TxID: domain.TxID(t.TxID), Amount: t.Value,
-			Time: t.Time, FeeAsset: domain.TRX, Status: domain.TxPending,
+	type aggregate struct {
+		in, out, self big.Int
+		time time.Time
+		confirmed bool
+		sent bool
+		onlySelf bool
+		counterIn, counterOut string
+		hasCounterIn, hasCounterOut bool
+		mixedCounterIn, mixedCounterOut bool
+	}
+	selfAddress := owner.String()
+	groups := make(map[string]*aggregate, len(ts))
+	order := make([]string, 0, len(ts))
+	for _, transfer := range ts {
+		if transfer.From != selfAddress && transfer.To != selfAddress {
+			continue
+		}
+		txid := strings.ToLower(transfer.TxID)
+		group := groups[txid]
+		if group == nil {
+			group = &aggregate{time: transfer.Time, confirmed: transfer.Confirmed, onlySelf: true}
+			groups[txid] = group
+			order = append(order, txid)
+		} else {
+			group.confirmed = group.confirmed && transfer.Confirmed
+			if transfer.Time.Before(group.time) {
+				group.time = transfer.Time
+			}
 		}
 		switch {
-		case t.From == self && t.To == self:
-			tx.Direction = domain.DirectionSelf
-		case t.From == self:
-			tx.Direction, tx.Counterparty = domain.DirectionOut, t.To
-		case t.To == self:
-			tx.Direction, tx.Counterparty = domain.DirectionIn, t.From
-		default:
-			continue // перевод не касается кошелька: ответ провайдера не доверяем
+		case transfer.From == selfAddress && transfer.To == selfAddress:
+			group.self.Add(&group.self, transfer.Value.BigInt())
+			group.sent = true
+		case transfer.To == selfAddress:
+			group.onlySelf = false
+			group.in.Add(&group.in, transfer.Value.BigInt())
+			if !group.hasCounterIn {
+				group.counterIn, group.hasCounterIn = transfer.From, true
+			} else if group.counterIn != transfer.From {
+				group.mixedCounterIn = true
+			}
+		case transfer.From == selfAddress:
+			group.onlySelf = false
+			group.sent = true
+			group.out.Add(&group.out, transfer.Value.BigInt())
+			if !group.hasCounterOut {
+				group.counterOut, group.hasCounterOut = transfer.To, true
+			} else if group.counterOut != transfer.To {
+				group.mixedCounterOut = true
+			}
 		}
-		if t.Confirmed && lookups < maxInfoLookups {
+	}
+
+	out := make([]domain.Tx, 0, len(order))
+	lookups := 0
+	for _, txid := range order {
+		group := groups[txid]
+		tx := domain.Tx{
+			WalletID: walletID, Asset: domain.USDT, TxID: domain.TxID(txid),
+			FeeAsset: domain.TRX, Status: domain.TxPending, Time: group.time,
+		}
+		amount := new(big.Int)
+		switch {
+		case group.onlySelf:
+			tx.Direction = domain.DirectionSelf
+			amount.Set(&group.self)
+		default:
+			net := new(big.Int).Sub(&group.in, &group.out)
+			switch net.Sign() {
+			case 1:
+				tx.Direction = domain.DirectionIn
+				amount.Set(net)
+				if !group.mixedCounterIn {
+					tx.Counterparty = group.counterIn
+				}
+			case -1:
+				tx.Direction = domain.DirectionOut
+				amount.Neg(net)
+				if !group.mixedCounterOut {
+					tx.Counterparty = group.counterOut
+				}
+			default:
+				tx.Direction = domain.DirectionSelf
+				amount.Set(&group.in)
+			}
+		}
+		value, err := domain.NewAmount(amount)
+		if err != nil {
+			return nil, bad("aggregated transfer amount out of range")
+		}
+		tx.Amount = value
+
+		if group.confirmed && lookups < maxInfoLookups {
 			lookups++
-			info, err := a.api.TxInfo(ctx, t.TxID)
+			info, err := a.api.TxInfo(ctx, txid)
 			if err != nil {
 				return nil, err
 			}
 			if info.Found {
-				st := statusOf(info)
-				tx.Status, tx.BlockHeight = st.State, st.BlockHeight
-				// Комиссию платит отправитель.
-				if tx.Direction != domain.DirectionIn {
+				status := statusOf(info)
+				tx.Status, tx.BlockHeight = status.State, status.BlockHeight
+				if group.sent {
 					tx.Fee = domain.AmountFromUint64(info.FeeSun)
 				}
 			}
-		} else if t.Confirmed {
-			// Вне лимита запросов: перевод есть в списке подтверждённых.
+		} else if group.confirmed {
+			// Вне лимита запросов: все события транзакции уже подтверждены.
 			tx.Status = domain.TxConfirmed
 		}
 		out = append(out, tx)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Time.Equal(out[j].Time) {
+			return out[i].Time.After(out[j].Time)
+		}
+		return out[i].TxID < out[j].TxID
+	})
 	return out, nil
 }

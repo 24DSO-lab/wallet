@@ -288,10 +288,16 @@ func TestTransactionForWalletDirections(t *testing.T) {
 		{
 			name: "outgoing",
 			tx: EsploraTx{TxID: strings.Repeat("b", 64), Fee: 200,
-				Vin: []EsploraInput{{Prevout: &struct {
-					ScriptPubKeyAddress string `json:"scriptpubkey_address"`
-					Value uint64 `json:"value"`
-				}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}}},
+				Vin: []EsploraInput{
+					{Prevout: &struct {
+						ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+						Value uint64 `json:"value"`
+					}{ScriptPubKeyAddress: "external-coinput", Value: 5000}},
+					{Prevout: &struct {
+						ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+						Value uint64 `json:"value"`
+					}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}},
+				},
 				Vout: []EsploraOutput{
 					{ScriptPubKeyAddress: "recipient", Value: 6000},
 					{ScriptPubKeyAddress: "bc1-wallet", Value: 3800},

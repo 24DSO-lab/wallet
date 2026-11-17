@@ -528,6 +528,29 @@ func TestRefreshUSDT(t *testing.T) {
 	}
 }
 
+func TestRefreshUSDTAggregatesMultipleEventsPerTransaction(t *testing.T) {
+	f := newFake()
+	wallet := testWallet(t)
+	txid := hex.EncodeToString(bytes32(9))
+	f.transfers = []Transfer{
+		{TxID: txid, From: otherAddr, To: wallet.TronAddress, Value: domain.AmountFromUint64(5_000_000), Time: testNow, Confirmed: true},
+		{TxID: txid, From: wallet.TronAddress, To: otherAddr, Value: domain.AmountFromUint64(2_000_000), Time: testNow, Confirmed: true},
+	}
+	f.info[txid] = TxInfo{Found: true, Success: true, BlockNumber: 90, FeeSun: 13_000_000, CurrentTip: 200}
+	snapshot, err := newAdapter(t, f).Refresh(context.Background(), wallet, domain.USDT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.History) != 1 {
+		t.Fatalf("history rows = %d, want one row per txid: %+v", len(snapshot.History), snapshot.History)
+	}
+	tx := snapshot.History[0]
+	if tx.TxID != domain.TxID(txid) || tx.Direction != domain.DirectionIn || tx.Amount.String() != "3000000" ||
+		tx.Fee.String() != "13000000" || tx.FeeAsset != domain.TRX || tx.Status != domain.TxConfirmed {
+		t.Fatalf("unexpected aggregated USDT transaction: %+v", tx)
+	}
+}
+
 func TestRefreshUSDTKeepsTokenBalanceWhenAuxiliaryProvidersFail(t *testing.T) {
 	boom := domain.NewError(domain.CodeProviderRateLimited, errors.New("rate limited"))
 	f := newFake(); f.transfersErr, f.accountErr = boom, boom

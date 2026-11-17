@@ -363,7 +363,8 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 	walletOutputs := new(big.Int)
 	externalOutputs := new(big.Int)
 	externalInputs := new(big.Int)
-	counterparty := ""
+	inputCounterparty := ""
+	outputCounterparty := ""
 
 	for _, input := range tx.Vin {
 		if input.Prevout == nil {
@@ -373,8 +374,8 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 			walletInputs.Add(walletInputs, new(big.Int).SetUint64(input.Prevout.Value))
 		} else {
 			externalInputs.Add(externalInputs, new(big.Int).SetUint64(input.Prevout.Value))
-			if counterparty == "" {
-				counterparty = input.Prevout.ScriptPubKeyAddress
+			if inputCounterparty == "" {
+				inputCounterparty = input.Prevout.ScriptPubKeyAddress
 			}
 		}
 	}
@@ -383,20 +384,23 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 			walletOutputs.Add(walletOutputs, new(big.Int).SetUint64(output.Value))
 		} else {
 			externalOutputs.Add(externalOutputs, new(big.Int).SetUint64(output.Value))
-			if counterparty == "" {
-				counterparty = output.ScriptPubKeyAddress
+			if outputCounterparty == "" {
+				outputCounterparty = output.ScriptPubKeyAddress
 			}
 		}
 	}
 
 	direction := domain.DirectionSelf
+	counterparty := ""
 	amount := new(big.Int).Set(walletOutputs)
 	fee := uint64(0)
 	switch {
 	case walletInputs.Sign() == 0 && walletOutputs.Sign() > 0:
 		direction = domain.DirectionIn
+		counterparty = inputCounterparty
 	case externalOutputs.Sign() > 0:
 		direction = domain.DirectionOut
+		counterparty = outputCounterparty
 		amount.Set(externalOutputs)
 		fee = tx.Fee
 	case walletInputs.Sign() > 0 && externalOutputs.Sign() == 0:
