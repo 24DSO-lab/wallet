@@ -10,7 +10,7 @@
 
 | Гейт | Состояние | Что подтверждено / что осталось |
 | --- | --- | --- |
-| 1. Каркас и ключи | Автотесты есть; приёмка не подписана | В репозитории есть BIP39/BIP32/BIP84 и сетевые тест-векторы. Сквозной тест `internal/hd/adapter_acceptance_test.go` проверяет production-адаптеры BTC/ETH/TRON на публичной эталонной мнемонике. Для закрытия нужна независимая сверка адресов на эталонных seed-фразах с зафиксированными публичными адресами. |
+| 1. Каркас и ключи | Технические доказательства PASS; приёмка владельцем ожидается | Production-адаптеры BTC/ETH/TRON сверены с опубликованными независимыми BIP39-векторами для пустой passphrase и `TREZOR`; подробности и адреса — в [`gate-1.md`](gate-1.md). Формальное закрытие ожидает явной приёмки владельцем. |
 | 2. Балансы и история | Не закрыт | Нужна запись сравнения BTC testnet, Ethereum Sepolia и TRON Nile с соответствующими обозревателями: адрес, баланс, входящие/исходящие txid, статус и время проверки. |
 | 3. Отправка | Не закрыт | Нужны реальные тестовые отправки BTC, ETH, USDC и USDT из приложения с настоящим keystore, запись txid и проверка подтверждения. Для TRON известное ограничение и порядок записи Nile fixtures описаны в `internal/chain/tron/README.md`. Отдельно выполнить Bitcoin RBF acceptance по `docs/BITCOIN-RBF-TESTNET-ACCEPTANCE.md`. |
 | 4. Обмен | **Отложен решением владельца** | Не реализовывать до отдельного ADR и выбора провайдера. Это не блокирует v1. |
@@ -33,8 +33,8 @@ CI workflow выполняет:
 - `govulncheck`;
 - сборку Windows-приложения Wails.
 
-Последний проверенный CI для `main` — [run 43862420933](https://github.com/24DSO-lab/wallet/actions/runs/43862420933),
-commit `43e86041b6c3308b99659193c53c814e0175ebc9`: все четыре jobs завершились успешно:
+Последний проверенный CI для `main` — [run 44008717494](https://github.com/24DSO-lab/wallet/actions/runs/44008717494),
+commit `46f530397b94c1ebbe5ee4b495fab7894ea5dfb5`: все четыре jobs завершились успешно:
 `frontend`, `lint`, `go (ubuntu-latest)` и `go (windows-latest)`. В workflow входят
 Playwright smoke tests, frontend typecheck/ESLint/Vitest/build, Go build/vet/race,
 `govulncheck` и Windows Wails build. Дефект с очисткой пароля при первом запросе
