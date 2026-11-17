@@ -86,6 +86,22 @@ func TestMainAndTestUseDifferentEndpoints(t *testing.T) {
 	}
 }
 
+func TestBTCTestProfileUsesTestnet4Endpoints(t *testing.T) {
+	cfg, err := config.New(domain.ProfileTest, "base", config.APIKeys{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Providers[config.ProviderBTC]
+	wantPrimary := "https://mempool.space/testnet4/api"
+	wantFallback := "https://blockstream.info/testnet4/api"
+	if got.Primary != wantPrimary {
+		t.Errorf("BTC test primary = %q, want %q", got.Primary, wantPrimary)
+	}
+	if len(got.Fallback) != 1 || got.Fallback[0] != wantFallback {
+		t.Errorf("BTC test fallback = %v, want [%s]", got.Fallback, wantFallback)
+	}
+}
+
 func TestBTCCoinType(t *testing.T) {
 	if config.BTCCoinType(domain.ProfileMain) != 0 || config.BTCCoinType(domain.ProfileTest) != 1 {
 		t.Error("BTC coin type must be 0 for main and 1 for test (A4)")
