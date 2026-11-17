@@ -552,13 +552,13 @@ func TestRefreshUSDT(t *testing.T) {
 		t.Fatalf("history %d (foreign transfer must be dropped)", len(snap.History))
 	}
 	in, out, self := snap.History[0], snap.History[1], snap.History[2]
-	if in.Direction != domain.DirectionIn || in.Counterparty != otherAddr || in.Status != domain.TxConfirmed || in.BlockHeight != 90 || !in.Fee.IsZero() {
+	if in.Direction != domain.DirectionIn || in.Counterparty != otherAddr || in.Status != domain.TxConfirmed || in.BlockHeight != 90 || !in.Fee.IsZero() || in.FeeAsset != "" {
 		t.Errorf("in %+v", in)
 	}
 	if out.Direction != domain.DirectionOut || out.Fee.String() != "13000000" || out.FeeAsset != domain.TRX || out.Counterparty != otherAddr {
 		t.Errorf("out %+v", out)
 	}
-	if self.Direction != domain.DirectionSelf || self.Status != domain.TxPending || self.Counterparty != "" {
+	if self.Direction != domain.DirectionSelf || self.Status != domain.TxPending || self.Counterparty != "" || self.FeeAsset != "" {
 		t.Errorf("self %+v", self)
 	}
 }
