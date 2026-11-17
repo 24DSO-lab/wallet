@@ -389,7 +389,7 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 			return domain.Address{}, err
 		}
 		if address.WalletID != walletID || address.Network != info.Network ||
-			address.Chain != domain.ChainReceive || !address.Valid() ||
+			address.Chain != domain.ChainReceive || address.Address == "" || address.Path == "" ||
 			chain.ValidateAddress(address.Address) != nil {
 			return domain.Address{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid receive address"))
 		}
