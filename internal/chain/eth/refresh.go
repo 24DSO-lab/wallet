@@ -16,10 +16,9 @@ import (
 // независимо: USDC не обращается к истории ETH как к отдельному активу, а
 // берёт из обычных транзакций только комиссию и статус своих переводов.
 //
-// Любой сбой источника это ошибка всего вызова: Snapshot не умеет сообщать
-// «история неполная», а выдавать неполную историю или нулевую комиссию за
-// настоящие данные нельзя. Сбой одного актива не мешает обновлению другого,
-// потому что вызовы независимы.
+// Ошибка критического источника баланса завершает Refresh. Ошибка индексатора
+// истории не скрывает достоверный on-chain баланс: она помечается в Snapshot,
+// а сервис сохраняет предыдущую историю и неизвестный fee balance.
 func (a *Adapter) Refresh(ctx context.Context, w domain.PublicWallet, asset domain.Asset) (ports.Snapshot, error) {
 	if asset != domain.ETH && asset != domain.USDC {
 		return ports.Snapshot{}, domain.NewError(domain.CodeInvalidInput, fmt.Errorf("eth: unsupported asset %q", string(asset)))
@@ -41,96 +40,75 @@ func (a *Adapter) Refresh(ctx context.Context, w domain.PublicWallet, asset doma
 	return a.refreshUSDC(ctx, w.ID, own)
 }
 
-// runConcurrent выполняет независимые операции одновременно. Первая ошибка
-// отменяет оставшиеся запросы; лимиты и повторы по-прежнему контролирует
-// provider.Client.
-func runConcurrent(ctx context.Context, tasks ...func(context.Context) error) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	errs := make(chan error, len(tasks))
-	var wg sync.WaitGroup
-	for _, task := range tasks {
-		task := task
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := task(ctx); err != nil {
-				select {
-				case errs <- err:
-				default:
-				}
-				cancel()
-			}
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		return err
-	}
-	return nil
-}
-
 func (a *Adapter) refreshETH(ctx context.Context, walletID string, own Address) (ports.Snapshot, error) {
-	var wei *big.Int
-	var txs []IndexedTx
-	if err := runConcurrent(ctx,
-		func(ctx context.Context) error {
-			var err error
-			wei, err = a.rpc.Balance(ctx, own)
-			return err
-		},
-		func(ctx context.Context) error {
-			var err error
-			txs, err = a.idx.NormalTxs(ctx, own)
-			return err
-		},
-	); err != nil {
-		return ports.Snapshot{}, err
+	var (
+		wei        *big.Int
+		txs        []IndexedTx
+		balanceErr error
+		historyErr error
+		wg         sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		wei, balanceErr = a.rpc.Balance(ctx, own)
+	}()
+	go func() {
+		defer wg.Done()
+		txs, historyErr = a.idx.NormalTxs(ctx, own)
+	}()
+	wg.Wait()
+	if balanceErr != nil {
+		return ports.Snapshot{}, balanceErr
 	}
 	bal, err := amountOf(wei)
 	if err != nil {
 		return ports.Snapshot{}, err
 	}
-	return ports.Snapshot{
-		Asset:    domain.ETH,
-		Balance:  domain.Balance{Confirmed: bal},
-		History:  ethHistory(walletID, own, txs),
-		FeeAsset: domain.ETH,
-		// FeeBalance для ETH нулевой: комиссия платится из самого баланса.
-		FetchedAt: a.now(),
-	}, nil
+	snap := ports.Snapshot{
+		Asset: domain.ETH, Balance: domain.Balance{Confirmed: bal},
+		FeeAsset: domain.ETH, FetchedAt: a.now(),
+	}
+	if historyErr != nil {
+		snap.HistoryError = string(domain.CodeOf(historyErr))
+	} else {
+		snap.History = ethHistory(walletID, own, txs)
+	}
+	return snap, nil
 }
 
 func (a *Adapter) refreshUSDC(ctx context.Context, walletID string, own Address) (ports.Snapshot, error) {
-	var raw []byte
-	var wei *big.Int
-	var transfers []IndexedTransfer
-	var normal []IndexedTx
-	if err := runConcurrent(ctx,
-		func(ctx context.Context) error {
-			var err error
-			raw, err = a.rpc.Call(ctx, a.params.usdc, encodeBalanceOf(own))
-			return err
-		},
-		func(ctx context.Context) error {
-			var err error
-			wei, err = a.rpc.Balance(ctx, own)
-			return err
-		},
-		func(ctx context.Context) error {
-			var err error
-			transfers, err = a.idx.TokenTransfers(ctx, own, a.params.usdc)
-			return err
-		},
-		func(ctx context.Context) error {
-			var err error
-			normal, err = a.idx.NormalTxs(ctx, own)
-			return err
-		},
-	); err != nil {
-		return ports.Snapshot{}, err
+	var (
+		raw          []byte
+		wei          *big.Int
+		transfers    []IndexedTransfer
+		normal       []IndexedTx
+		tokenErr     error
+		feeErr       error
+		transfersErr error
+		normalErr    error
+		wg           sync.WaitGroup
+	)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		raw, tokenErr = a.rpc.Call(ctx, a.params.usdc, encodeBalanceOf(own))
+	}()
+	go func() {
+		defer wg.Done()
+		wei, feeErr = a.rpc.Balance(ctx, own)
+	}()
+	go func() {
+		defer wg.Done()
+		transfers, transfersErr = a.idx.TokenTransfers(ctx, own, a.params.usdc)
+	}()
+	go func() {
+		defer wg.Done()
+		normal, normalErr = a.idx.NormalTxs(ctx, own)
+	}()
+	wg.Wait()
+	if tokenErr != nil {
+		return ports.Snapshot{}, tokenErr
 	}
 	word, err := decodeWord(raw)
 	if err != nil {
@@ -140,19 +118,26 @@ func (a *Adapter) refreshUSDC(ctx context.Context, walletID string, own Address)
 	if err != nil {
 		return ports.Snapshot{}, err
 	}
-	// Комиссия USDC платится в ETH: его баланс показывается рядом (ADR).
-	feeBal, err := amountOf(wei)
-	if err != nil {
-		return ports.Snapshot{}, err
+	snap := ports.Snapshot{
+		Asset: domain.USDC, Balance: domain.Balance{Confirmed: bal},
+		FeeAsset: domain.ETH, FetchedAt: a.now(),
 	}
-	return ports.Snapshot{
-		Asset:      domain.USDC,
-		Balance:    domain.Balance{Confirmed: bal},
-		History:    usdcHistory(walletID, own, a.params.usdc, transfers, normal),
-		FeeBalance: feeBal,
-		FeeAsset:   domain.ETH,
-		FetchedAt:  a.now(),
-	}, nil
+	if feeErr != nil {
+		snap.FeeBalanceError = string(domain.CodeOf(feeErr))
+	} else if feeBal, amountErr := amountOf(wei); amountErr != nil {
+		snap.FeeBalanceError = string(domain.CodeOf(amountErr))
+	} else {
+		snap.FeeBalance = feeBal
+	}
+	switch {
+	case transfersErr != nil:
+		snap.HistoryError = string(domain.CodeOf(transfersErr))
+	case normalErr != nil:
+		snap.HistoryError = string(domain.CodeOf(normalErr))
+	default:
+		snap.History = usdcHistory(walletID, own, a.params.usdc, transfers, normal)
+	}
+	return snap, nil
 }
 
 func amountOf(n *big.Int) (domain.Amount, error) {

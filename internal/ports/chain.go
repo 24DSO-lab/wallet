@@ -79,6 +79,10 @@ type Snapshot struct {
 	// для остальных активов нулевой.
 	FeeBalance domain.Amount
 	FeeAsset   domain.Asset
+	// HistoryError marks incomplete history; previous records must be retained.
+	HistoryError string
+	// FeeBalanceError marks an unavailable fee-asset balance; cached data is retained.
+	FeeBalanceError string
 	FetchedAt  time.Time
 }
 

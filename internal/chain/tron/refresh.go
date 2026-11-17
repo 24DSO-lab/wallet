@@ -19,12 +19,12 @@ func (a *Adapter) Refresh(ctx context.Context, w domain.PublicWallet, asset doma
 	if err != nil {
 		return ports.Snapshot{}, err
 	}
-	trx, _, err := a.api.Account(ctx, owner)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
+	trx, _, accountErr := a.api.Account(ctx, owner)
 	snap := ports.Snapshot{Asset: asset, FetchedAt: a.now()}
 	if asset == domain.TRX {
+		if accountErr != nil {
+			return ports.Snapshot{}, accountErr
+		}
 		snap.Balance = domain.Balance{Confirmed: domain.AmountFromUint64(trx)}
 		return snap, nil
 	}
@@ -41,18 +41,24 @@ func (a *Adapter) Refresh(ctx context.Context, w domain.PublicWallet, asset doma
 	if err != nil {
 		return ports.Snapshot{}, bad("balance out of range")
 	}
-	transfers, err := a.api.TRC20Transfers(ctx, contract, owner, historyLimit)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
-	hist, err := a.history(ctx, w.ID, owner, transfers)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
 	snap.Balance = domain.Balance{Confirmed: amt}
-	snap.History = hist
-	snap.FeeBalance = domain.AmountFromUint64(trx)
 	snap.FeeAsset = domain.TRX
+	if accountErr != nil {
+		snap.FeeBalanceError = string(domain.CodeOf(accountErr))
+	} else {
+		snap.FeeBalance = domain.AmountFromUint64(trx)
+	}
+	transfers, transfersErr := a.api.TRC20Transfers(ctx, contract, owner, historyLimit)
+	if transfersErr != nil {
+		snap.HistoryError = string(domain.CodeOf(transfersErr))
+		return snap, nil
+	}
+	hist, historyErr := a.history(ctx, w.ID, owner, transfers)
+	if historyErr != nil {
+		snap.HistoryError = string(domain.CodeOf(historyErr))
+		return snap, nil
+	}
+	snap.History = hist
 	return snap, nil
 }
 

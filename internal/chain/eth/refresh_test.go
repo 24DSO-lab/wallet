@@ -269,38 +269,28 @@ func TestUSDCHistoryAggregatesPerHash(t *testing.T) {
 
 func TestRefreshSourceFailures(t *testing.T) {
 	boom := domain.NewError(domain.CodeProviderUnavailable, errors.New("down"))
-	ok := &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(1), callOut: word(1)}
-
-	tests := []struct {
-		name  string
-		asset domain.Asset
-		rpc   *fakeRPC
-		idx   *fakeIndexer
-		code  domain.ErrorCode
-	}{
-		{"eth history down", domain.ETH, ok, &fakeIndexer{normalErr: boom}, domain.CodeProviderUnavailable},
-		{"usdc transfers down", domain.USDC, ok, &fakeIndexer{transErr: boom}, domain.CodeProviderUnavailable},
-		{"usdc fee source down", domain.USDC, ok, &fakeIndexer{normalErr: boom}, domain.CodeProviderUnavailable},
-		{"rate limited", domain.USDC, ok, &fakeIndexer{transErr: domain.NewError(domain.CodeProviderRateLimited, errors.New("429"))}, domain.CodeProviderRateLimited},
-		{"balance down", domain.ETH, &fakeRPC{chainID: ChainIDSepolia, balErr: boom}, &fakeIndexer{}, domain.CodeProviderUnavailable},
-		{"balanceOf down", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, callErr: boom}, &fakeIndexer{}, domain.CodeProviderUnavailable},
-		{"balanceOf short answer", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(1), callOut: []byte{1}}, &fakeIndexer{}, domain.CodeProviderBadResponse},
-		{"balanceOf empty answer (no contract)", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(1), callOut: nil}, &fakeIndexer{}, domain.CodeProviderBadResponse},
+	tests := []struct { name string; asset domain.Asset; rpc *fakeRPC; idx *fakeIndexer; code domain.ErrorCode }{
+		{"ETH balance down", domain.ETH, &fakeRPC{chainID: ChainIDSepolia, balErr: boom}, &fakeIndexer{}, domain.CodeProviderUnavailable},
+		{"USDC token balance down", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, callErr: boom}, &fakeIndexer{}, domain.CodeProviderUnavailable},
+		{"USDC malformed balance", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(1), callOut: []byte{1}}, &fakeIndexer{}, domain.CodeProviderBadResponse},
+		{"USDC empty balance", domain.USDC, &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(1)}, &fakeIndexer{}, domain.CodeProviderBadResponse},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snap, err := newAdapter(t, tt.rpc, tt.idx).Refresh(context.Background(), wallet(), tt.asset)
-			if err == nil {
-				t.Fatal("failure of a source was swallowed")
-			}
-			if domain.CodeOf(err) != tt.code {
-				t.Errorf("code = %q, want %q (%v)", domain.CodeOf(err), tt.code, err)
-			}
-			if len(snap.History) != 0 || !snap.Balance.Confirmed.IsZero() {
-				t.Errorf("partial data returned beside the error: %+v", snap)
-			}
+			_, err := newAdapter(t, tt.rpc, tt.idx).Refresh(context.Background(), wallet(), tt.asset)
+			if domain.CodeOf(err) != tt.code { t.Fatalf("code = %q, want %q (%v)", domain.CodeOf(err), tt.code, err) }
 		})
 	}
+}
+
+func TestRefreshKeepsBalanceWhenHistoryProviderFails(t *testing.T) {
+	boom := domain.NewError(domain.CodeProviderRateLimited, errors.New("429"))
+	ethRPC := &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(123)}
+	ethSnap, err := newAdapter(t, ethRPC, &fakeIndexer{normalErr: boom}).Refresh(context.Background(), wallet(), domain.ETH)
+	if err != nil || ethSnap.Balance.Confirmed.String() != "123" || ethSnap.HistoryError != string(domain.CodeProviderRateLimited) || len(ethSnap.History) != 0 { t.Fatalf("ETH partial snapshot = %+v, err=%v", ethSnap, err) }
+	usdcRPC := &fakeRPC{chainID: ChainIDSepolia, balance: big.NewInt(456), callOut: word(789)}
+	usdcSnap, err := newAdapter(t, usdcRPC, &fakeIndexer{transErr: boom}).Refresh(context.Background(), wallet(), domain.USDC)
+	if err != nil || usdcSnap.Balance.Confirmed.String() != "789" || usdcSnap.HistoryError != string(domain.CodeProviderRateLimited) || usdcSnap.FeeBalance.String() != "456" || usdcSnap.FeeBalanceError != "" { t.Fatalf("USDC partial snapshot = %+v, err=%v", usdcSnap, err) }
 }
 
 func TestRefreshRejectsWrongChain(t *testing.T) {

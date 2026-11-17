@@ -26,6 +26,8 @@ type fakeAPI struct {
 	energy    uint64
 	prices    Prices
 	info      map[string]TxInfo
+	accountErr error
+	transfersErr error
 	bcast     BroadcastResult
 	bcastErr  error
 	sent      []byte
@@ -46,10 +48,11 @@ func newFake() *fakeAPI {
 }
 
 func (f *fakeAPI) NowBlock(context.Context) (BlockRef, error)                 { return f.block, f.err }
-func (f *fakeAPI) Account(context.Context, Addr) (uint64, bool, error)        { return f.trx, f.exists, f.err }
+func (f *fakeAPI) Account(context.Context, Addr) (uint64, bool, error) { if f.accountErr != nil { return 0, false, f.accountErr }; return f.trx, f.exists, f.err }
 func (f *fakeAPI) Resources(context.Context, Addr) (Resources, error)         { return f.res, f.err }
 func (f *fakeAPI) TRC20Balance(context.Context, Addr, Addr) (*big.Int, error) { return f.usdt, f.err }
 func (f *fakeAPI) TRC20Transfers(context.Context, Addr, Addr, int) ([]Transfer, error) {
+	if f.transfersErr != nil { return nil, f.transfersErr }
 	return f.transfers, f.err
 }
 func (f *fakeAPI) EstimateEnergy(context.Context, Addr, Addr, []byte) (uint64, error) {
@@ -523,6 +526,16 @@ func TestRefreshUSDT(t *testing.T) {
 	if self.Direction != domain.DirectionSelf || self.Status != domain.TxPending || self.Counterparty != "" {
 		t.Errorf("self %+v", self)
 	}
+}
+
+func TestRefreshUSDTKeepsTokenBalanceWhenAuxiliaryProvidersFail(t *testing.T) {
+	boom := domain.NewError(domain.CodeProviderRateLimited, errors.New("rate limited"))
+	f := newFake(); f.transfersErr, f.accountErr = boom, boom
+	snap, err := newAdapter(t, f).Refresh(context.Background(), testWallet(t), domain.USDT)
+	if err != nil { t.Fatalf("refresh should preserve valid USDT balance: %v", err) }
+	if snap.Balance.Confirmed.String() != "10000000" { t.Fatalf("USDT balance = %s", snap.Balance.Confirmed) }
+	if snap.HistoryError != string(domain.CodeProviderRateLimited) || len(snap.History) != 0 { t.Fatalf("history = %+v", snap) }
+	if snap.FeeBalanceError != string(domain.CodeProviderRateLimited) { t.Fatalf("fee balance error = %q", snap.FeeBalanceError) }
 }
 
 func bytes32(b byte) []byte { x := make([]byte, 32); x[31] = b; return x }

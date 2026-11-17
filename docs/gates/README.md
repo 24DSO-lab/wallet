@@ -26,22 +26,18 @@
 
 ## Автоматические проверки
 
-CI workflow выполняет:
+По решению владельца проекта CI временно отключён до завершения разработки.
+Оба workflow доступны только вручную (`workflow_dispatch`); автоматические запуски
+на push, pull request и расписание отключены. В конце разработки вручную запускается
+полный CI, включая frontend, Go, безопасность и Windows build.
 
-- frontend typecheck, ESLint, Vitest, Playwright smoke E2E и production build;
-- `go mod verify`, Go build, vet и race-тесты;
-- `govulncheck`;
-- сборку Windows-приложения Wails.
+Последний успешный CI до отключения: [run 44017084291](https://github.com/24DSO-lab/wallet/actions/runs/44017084291)
+на commit `652eb733a9be751d48aa9b4e47e85623e9e67b09`. Последующие коммиты не
+проверялись полным CI, поскольку он отключён по решению владельца.
 
-Последний проверенный CI для `main` — [run 44008717494](https://github.com/24DSO-lab/wallet/actions/runs/44008717494),
-commit `46f530397b94c1ebbe5ee4b495fab7894ea5dfb5`: все четыре jobs завершились успешно:
-`frontend`, `lint`, `go (ubuntu-latest)` и `go (windows-latest)`. В workflow входят
-Playwright smoke tests, frontend typecheck/ESLint/Vitest/build, Go build/vet/race,
-`govulncheck` и Windows Wails build. Дефект с очисткой пароля при первом запросе
-сессии исправлен ранее в commit `8ce5e5f`; Playwright-тесты не отключались и не ослаблялись.
-
-Зелёный CI подтверждает сборку и автоматические тесты, но не заменяет тестовые
-транзакции, сверку обозревателей и восстановление на чистой установке.
+Unit-тесты адаптеров не заменяют тестовые транзакции, сверку обозревателей и
+восстановление на чистой установке. Эти сетевые гейты остаются открытыми до
+фиксации публичных адресов, фактических балансов, txid и времени проверки.
 
 ## Как закрывать гейт
 

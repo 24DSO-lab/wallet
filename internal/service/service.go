@@ -513,10 +513,12 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 				return err
 			}
 		}
-		if err := tx.Transactions().Upsert(txctx, snapshot.History); err != nil {
-			return err
+		if snapshot.HistoryError == "" {
+			if err := tx.Transactions().Upsert(txctx, snapshot.History); err != nil {
+				return err
+			}
 		}
-		if snapshot.FeeAsset != "" && snapshot.FeeAsset != asset {
+		if snapshot.FeeAsset != "" && snapshot.FeeAsset != asset && snapshot.FeeBalanceError == "" {
 			feeBalance := domain.Balance{Confirmed: snapshot.FeeBalance}
 			if err := tx.Balances().Put(txctx, walletID, snapshot.FeeAsset, feeBalance, snapshot.FetchedAt); err != nil {
 				return err

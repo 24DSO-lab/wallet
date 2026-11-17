@@ -38,8 +38,9 @@ type BalanceDTO struct {
 	PendingAmount string `json:"pendingAmount"`
 	Decimals   uint8  `json:"decimals"`
 	UpdatedAt  string `json:"updatedAt"`
-	FeeAsset   string `json:"feeAsset,omitempty"`
-	FeeBalance string `json:"feeBalance,omitempty"`
+	FeeAsset   string   `json:"feeAsset,omitempty"`
+	FeeBalance string   `json:"feeBalance,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 type TxDTO struct {
 	ID        string `json:"id"`
@@ -113,8 +114,10 @@ func snapshotDTO(s ports.Snapshot) BalanceDTO {
 	out := BalanceDTO{Asset: string(s.Asset), Network: string(info.Network), Amount: s.Balance.Confirmed.String(), Decimals: info.Decimals, UpdatedAt: s.FetchedAt.UTC().Format(time.RFC3339Nano)}
 	if s.FeeAsset != "" {
 		out.FeeAsset = string(s.FeeAsset)
-		out.FeeBalance = s.FeeBalance.String()
+		if s.FeeBalanceError == "" { out.FeeBalance = s.FeeBalance.String() }
 	}
+	if s.HistoryError != "" { out.Warnings = append(out.Warnings, "history_unavailable:"+s.HistoryError) }
+	if s.FeeBalanceError != "" { out.Warnings = append(out.Warnings, "fee_balance_unavailable:"+s.FeeBalanceError) }
 	return out
 }
 func warningCodes(in []domain.Warning) []string {
