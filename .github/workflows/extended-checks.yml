@@ -1,7 +1,10 @@
 name: extended-checks
 
-# Расширенные проверки также запускаются только вручную — в конце разработки.
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
