@@ -5,12 +5,12 @@
 
 ## Test profile
 
-Для профиля `test` используется Bitcoin testnet через Esplora:
+Для профиля `test` используется **Bitcoin Testnet4** через Esplora. Это отдельная сеть от Testnet3; общий префикс адресов `tb1` не означает, что сети взаимозаменяемы:
 
-- Primary: `https://mempool.space/testnet/api`
-- Fallback: `https://blockstream.info/testnet/api`
+- Primary: `https://mempool.space/testnet4/api`
+- Fallback: `https://blockstream.info/testnet4/api`
 
-Оба адреса уже заданы в `internal/config`. Пакет не создаёт собственный
+Оба адреса уже заданы в `internal/config`. Адреса BIP84 и coin type 1 остаются совместимыми; при переключении Testnet3 → Testnet4 менять seed, xpub или уже выданные адреса не требуется. Пакет не создаёт собственный
 `http.Client`: все запросы идут через `provider.Client`, который отвечает
 за таймауты, повторы чтения, fallback, rate limiting и очистку ошибок.
 
