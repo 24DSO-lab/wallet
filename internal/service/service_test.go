@@ -292,6 +292,88 @@ func TestConfirmSendSuccessKeepsPendingHistoryAndRecoveryPayloadForRBF(t *testin
 	}
 }
 
+func TestRefreshWalletRetainsCachedDataWhenSnapshotSourcesFail(t *testing.T) {
+	tests := []struct {
+		name              string
+		historyUnavailable bool
+		feeUnavailable     bool
+	}{
+		{name: "history unavailable", historyUnavailable: true},
+		{name: "fee balance unavailable", feeUnavailable: true},
+		{name: "history and fee balance unavailable", historyUnavailable: true, feeUnavailable: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := testkit.NewFakeChain(testkit.FakeChainOptions{Network: domain.NetworkEthereum})
+			svc, st := testService(t, chain)
+			wallet := createTestWallet(t, svc)
+			ctx := context.Background()
+
+			oldTx := domain.Tx{
+				WalletID: wallet.ID, Asset: domain.USDC, TxID: "previous-usdc-transfer",
+				Direction: domain.DirectionIn, Amount: domain.AmountFromUint64(125),
+				Status: domain.TxConfirmed, Time: time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC),
+			}
+			if err := st.Transactions().Upsert(ctx, []domain.Tx{oldTx}); err != nil {
+				t.Fatal(err)
+			}
+			oldFee := domain.AmountFromUint64(7_500)
+			if err := st.Balances().Put(ctx, wallet.ID, domain.ETH, domain.Balance{Confirmed: oldFee}, time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+
+			snapshot := ports.Snapshot{
+				Asset: domain.USDC,
+				Balance: domain.Balance{Confirmed: domain.AmountFromUint64(9_900)},
+				FeeAsset: domain.ETH,
+				FeeBalance: domain.AmountFromUint64(8_800),
+			}
+			if tt.historyUnavailable {
+				snapshot.HistoryError = "history provider unavailable"
+			}
+			if tt.feeUnavailable {
+				snapshot.FeeBalanceError = "fee balance provider unavailable"
+			}
+			chain.SetSnapshot(snapshot)
+
+			got, err := svc.RefreshWallet(ctx, wallet.ID, domain.USDC)
+			if err != nil {
+				t.Fatalf("RefreshWallet(USDC): %v", err)
+			}
+			if !got.Balance.Confirmed.Equal(domain.AmountFromUint64(9_900)) {
+				t.Fatalf("returned balance = %s, want 9900", got.Balance.Confirmed)
+			}
+			storedBalance, err := st.Balances().Get(ctx, wallet.ID, domain.USDC)
+			if err != nil {
+				t.Fatalf("read refreshed USDC balance: %v", err)
+			}
+			if !storedBalance.Balance.Confirmed.Equal(domain.AmountFromUint64(9_900)) {
+				t.Fatalf("stored USDC balance = %s, want 9900", storedBalance.Balance.Confirmed)
+			}
+
+			if tt.historyUnavailable {
+				history, err := st.Transactions().List(ctx, wallet.ID, domain.USDC)
+				if err != nil {
+					t.Fatalf("read cached history: %v", err)
+				}
+				if len(history) != 1 || history[0].TxID != oldTx.TxID {
+					t.Fatalf("cached history was not retained: %+v", history)
+				}
+			}
+			if tt.feeUnavailable {
+				storedFee, err := st.Balances().Get(ctx, wallet.ID, domain.ETH)
+				if err != nil {
+					t.Fatalf("read cached ETH fee balance: %v", err)
+				}
+				if !storedFee.Balance.Confirmed.Equal(oldFee) {
+					t.Fatalf("cached ETH fee balance = %s, want %s", storedFee.Balance.Confirmed, oldFee)
+				}
+			}
+		})
+	}
+}
+
 func TestRefreshWalletPersistsTRXFeeBalance(t *testing.T) {
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
 		Network: domain.NetworkTron,
