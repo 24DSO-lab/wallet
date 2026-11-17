@@ -97,6 +97,15 @@ func TestAccountAndResources(t *testing.T) {
 	if !s.reqs[1].Idempotent {
 		t.Error("read must be idempotent")
 	}
+	// Free and staked quotas are kept separate; they are not additive for
+	// deciding whether a transaction's full bandwidth cost is covered.
+	stakedGrid, _ := grid(map[string]stubReply{
+		"/wallet/getaccountresource": {body: `{"freeNetLimit":600,"freeNetUsed":100,"NetLimit":1000,"NetUsed":150,"EnergyLimit":5000,"EnergyUsed":200}`},
+	})
+	staked, err := stakedGrid.Resources(context.Background(), me)
+	if err != nil || staked.FreeBandwidth != 500 || staked.StakedBandwidth != 850 {
+		t.Fatalf("separate bandwidth resources = %+v, err=%v", staked, err)
+	}
 	empty, _ := grid(map[string]stubReply{"/v1/accounts/" + otherAddr: {body: `{"data":[],"success":true}`}})
 	if bal, exists, err := empty.Account(context.Background(), me); err != nil || bal != 0 || exists {
 		t.Errorf("empty account: %v %v %v", bal, exists, err)
