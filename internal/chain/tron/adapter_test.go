@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -135,6 +136,27 @@ func TestPrepareHappyPath(t *testing.T) {
 	}
 	if p.Summary.To != otherAddr || !p.Summary.Total.IsZero() || p.FeeAsset != domain.TRX {
 		t.Errorf("summary %+v", p.Summary)
+	}
+}
+
+func TestPrepareChargesOnlyBandwidthBeyondAvailableResources(t *testing.T) {
+	f := newFake()
+	f.res.Bandwidth = 0
+	a := newAdapter(t, f)
+	full, err := a.Prepare(context.Background(), testIntent(t, 1_000_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	totalBandwidth := uint64(len(full.Draft)) + bandwidthOverhead
+	available := totalBandwidth / 2
+	f.res.Bandwidth = available
+	partial, err := newAdapter(t, f).Prepare(context.Background(), testIntent(t, 1_000_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := (totalBandwidth - available) * f.prices.BandwidthFee
+	if partial.Fee.String() != fmt.Sprint(want) {
+		t.Fatalf("fee = %s, want %d sun for only the missing bandwidth", partial.Fee, want)
 	}
 }
 

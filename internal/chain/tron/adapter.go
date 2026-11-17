@@ -195,7 +195,7 @@ func (a *Adapter) Prepare(ctx context.Context, in domain.SendIntent) (ports.Prep
 			Detail: "not enough energy: the missing part is paid by burning TRX"})
 	}
 	if bw := uint64(len(draft)) + bandwidthOverhead; bw > res.Bandwidth {
-		burn += bw * prices.BandwidthFee
+		burn += (bw - res.Bandwidth) * prices.BandwidthFee
 	}
 	if trx < burn {
 		warns = append(warns, domain.Warning{Code: domain.WarnInsufficientFeeCoin,
