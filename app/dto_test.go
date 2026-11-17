@@ -48,6 +48,19 @@ func TestSnapshotDTOReportsPartialProviderFailuresWithoutFeeBalance(t *testing.T
 	}
 }
 
+func TestTxDTOLeavesUnknownTimestampAndFeeUnspecified(t *testing.T) {
+	got := txDTO(domain.Tx{
+		TxID: "pending-transaction", Asset: domain.USDT, Direction: domain.DirectionOut,
+		Amount: domain.AmountFromUint64(1_000_000), Status: domain.TxPending,
+	})
+	if got.Timestamp != "" {
+		t.Fatalf("zero transaction time = %q, want empty timestamp", got.Timestamp)
+	}
+	if got.FeeAsset != "" {
+		t.Fatalf("unknown transaction fee asset = %q, want empty", got.FeeAsset)
+	}
+}
+
 func TestWalletDTOUsesCachedTRXBalanceForUSDTFees(t *testing.T) {
 	wallet := domain.Wallet{ID: "wallet-1", Name: "Wallet"}
 	records := map[domain.Asset]ports.BalanceRecord{

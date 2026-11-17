@@ -139,7 +139,7 @@ func (a *Adapter) history(ctx context.Context, walletID string, owner Addr, ts [
 		group := groups[txid]
 		tx := domain.Tx{
 			WalletID: walletID, Asset: domain.USDT, TxID: domain.TxID(txid),
-			FeeAsset: domain.TRX, Status: domain.TxPending, Time: group.time,
+			Status: domain.TxPending, Time: group.time,
 		}
 		amount := new(big.Int)
 		switch {
@@ -182,6 +182,7 @@ func (a *Adapter) history(ctx context.Context, walletID string, owner Addr, ts [
 				status := statusOf(info)
 				tx.Status, tx.BlockHeight = status.State, status.BlockHeight
 				if group.sent {
+					tx.FeeAsset = domain.TRX
 					tx.Fee = domain.AmountFromUint64(info.FeeSun)
 				}
 			}

@@ -107,7 +107,11 @@ func txDTO(tx domain.Tx) TxDTO {
 	if info, ok := tx.FeeAsset.Info(); ok {
 		feeDecimals = info.Decimals
 	}
-	return TxDTO{ID: string(tx.TxID), Asset: string(tx.Asset), Direction: string(tx.Direction), Amount: tx.Amount.FormatDecimal(decimals), Fee: tx.Fee.FormatDecimal(feeDecimals), FeeAsset: string(tx.FeeAsset), Status: string(tx.Status), Timestamp: tx.Time.UTC().Format(time.RFC3339Nano), Address: tx.Counterparty}
+	timestamp := ""
+	if !tx.Time.IsZero() {
+		timestamp = tx.Time.UTC().Format(time.RFC3339Nano)
+	}
+	return TxDTO{ID: string(tx.TxID), Asset: string(tx.Asset), Direction: string(tx.Direction), Amount: tx.Amount.FormatDecimal(decimals), Fee: tx.Fee.FormatDecimal(feeDecimals), FeeAsset: string(tx.FeeAsset), Status: string(tx.Status), Timestamp: timestamp, Address: tx.Counterparty}
 }
 func snapshotDTO(s ports.Snapshot) BalanceDTO {
 	info, _ := s.Asset.Info()
