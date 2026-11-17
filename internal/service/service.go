@@ -355,7 +355,6 @@ func (s *Service) ChangePassword(ctx context.Context, oldPassword, newPassword s
 }
 
 // GetReceiveAddress returns the next unused address for the selected asset.
-// Bitcoin addresses must first be discovered by RefreshWallet.
 func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset domain.Asset) (domain.Address, error) {
 	info, ok := asset.Info()
 	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
@@ -365,19 +364,10 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 	if err != nil {
 		return domain.Address{}, err
 	}
-	addresses, err := s.store.Addresses().List(ctx, walletID, info.Network)
-	if err != nil {
-		return domain.Address{}, err
-	}
-	for _, address := range addresses {
-		if !address.Used {
-			return address, nil
-		}
-	}
 
-	// BTC receive-address lookup is intentionally separate from a full refresh:
-	// it checks only the external BIP84 chain and does not fetch balances,
-	// UTXOs, transaction history or the current block height.
+	// BTC must be checked against the provider on every request. A locally
+	// cached address marked unused may already have received an on-chain
+	// transaction since the last balance refresh.
 	if asset == domain.BTC {
 		chain := s.chains[info.Network]
 		receiver, supported := chain.(ports.ReceiveAddressAdapter)
@@ -397,6 +387,16 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 			return domain.Address{}, err
 		}
 		return address, nil
+	}
+
+	addresses, err := s.store.Addresses().List(ctx, walletID, info.Network)
+	if err != nil {
+		return domain.Address{}, err
+	}
+	for _, address := range addresses {
+		if !address.Used {
+			return address, nil
+		}
 	}
 	return domain.Address{}, domain.NewError(domain.CodeNotFound, domain.ErrNotFound)
 }
