@@ -16,7 +16,7 @@ import (
 const (
 	AddressGapLimit             = 20
 	MaxAddressScan              = 10000
-	maxConcurrentAddressLookups = 8
+	maxConcurrentAddressLookups = 4
 )
 
 var (

@@ -129,6 +129,7 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		Endpoints:    cfg.Providers[config.ProviderBTC].All(),
 		Timeout:      5 * time.Second,
 		MaxAttempts:  1, // fail over quickly instead of retrying a slow explorer several times
+		MinInterval: 150 * time.Millisecond, // pace public Esplora requests to avoid bursts and rate limits
 		Redactor:     logging.NewRedactor(r.keys.Values()...),
 	})
 	if err != nil {

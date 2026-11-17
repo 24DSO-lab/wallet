@@ -26,7 +26,7 @@ import (
 
 const defaultLockTimeout = 5 * time.Minute
 const btcReceiveAddressTimeout = 45 * time.Second
-const btcReceiveLookupTimeout = 12 * time.Second
+const btcReceiveLookupTimeout = 30 * time.Second
 
 // Dependencies are supplied by the composition root. Optional callbacks are
 // deliberately explicit: changing the network profile or creating a backup
