@@ -62,6 +62,13 @@ type RBFAdapter interface {
 }
 
 // Snapshot это результат Refresh для одного актива.
+// ReceiveAddressAdapter is an optional fast path for deriving the next
+// Bitcoin receive address without refreshing balances, history or UTXOs.
+// Implementations must scan the external BIP84 chain through its gap limit.
+type ReceiveAddressAdapter interface {
+	ReceiveAddress(ctx context.Context, wallet domain.PublicWallet, asset domain.Asset) (domain.Address, error)
+}
+
 type Snapshot struct {
 	Asset     domain.Asset
 	Balance   domain.Balance
