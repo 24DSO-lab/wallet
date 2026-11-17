@@ -216,8 +216,15 @@ func TestRefreshUSDC(t *testing.T) {
 	if in.Direction != domain.DirectionIn || in.Amount.String() != "2000000" || !in.Fee.IsZero() {
 		t.Errorf("incoming = %+v", in)
 	}
-	if rpc.calls[0] != "call:"+USDCSepoliaContract {
-		t.Errorf("balanceOf must go to the pinned contract, got %v", rpc.calls)
+	if len(rpc.calls) != 2 {
+		t.Fatalf("USDC refresh RPC calls = %v, want balanceOf and ETH balance", rpc.calls)
+	}
+	seen := map[string]bool{}
+	for _, call := range rpc.calls {
+		seen[call] = true
+	}
+	if !seen["call:"+USDCSepoliaContract] || !seen["balance"] {
+		t.Errorf("USDC refresh RPC calls = %v, want pinned balanceOf and ETH balance", rpc.calls)
 	}
 }
 
