@@ -27,6 +27,27 @@ func TestWalletDTOIncludesReceiveAssetsBeforeFirstRefresh(t *testing.T) {
 	}
 }
 
+func TestSnapshotDTOReportsPartialProviderFailuresWithoutFeeBalance(t *testing.T) {
+	got := snapshotDTO(ports.Snapshot{
+		Asset: domain.USDC,
+		Balance: domain.Balance{Confirmed: domain.AmountFromUint64(42)},
+		FeeAsset: domain.ETH,
+		FeeBalance: domain.AmountFromUint64(99),
+		HistoryError: "provider_unavailable",
+		FeeBalanceError: "provider_rate_limited",
+		FetchedAt: time.Date(2026, 11, 17, 4, 0, 0, 0, time.UTC),
+	})
+	if got.Amount != "42" {
+		t.Fatalf("fresh token balance = %q, want 42", got.Amount)
+	}
+	if got.FeeAsset != string(domain.ETH) || got.FeeBalance != "" {
+		t.Fatalf("unavailable fee balance must be omitted, got %+v", got)
+	}
+	if len(got.Warnings) != 2 || got.Warnings[0] != "history_unavailable:provider_unavailable" || got.Warnings[1] != "fee_balance_unavailable:provider_rate_limited" {
+		t.Fatalf("partial provider warnings = %#v", got.Warnings)
+	}
+}
+
 func TestWalletDTOUsesCachedTRXBalanceForUSDTFees(t *testing.T) {
 	wallet := domain.Wallet{ID: "wallet-1", Name: "Wallet"}
 	records := map[domain.Asset]ports.BalanceRecord{
