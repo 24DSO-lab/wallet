@@ -91,7 +91,7 @@ func TestAccountAndResources(t *testing.T) {
 		t.Fatalf("%v %v %v", bal, exists, err)
 	}
 	r, err := g.Resources(context.Background(), me)
-	if err != nil || r.Bandwidth != 500 || r.Energy != 4800 { // NetUsed > NetLimit не уходит в минус
+	if err != nil || r.FreeBandwidth != 500 || r.StakedBandwidth != 0 || r.Energy != 4800 { // NetUsed > NetLimit не уходит в минус
 		t.Fatalf("%+v %v", r, err)
 	}
 	if !s.reqs[1].Idempotent {

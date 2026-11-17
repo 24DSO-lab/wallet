@@ -43,7 +43,7 @@ func newFake() *fakeAPI {
 	}
 	return &fakeAPI{
 		block: BlockRef{Number: 42, ID: id, Timestamp: testNow}, trx: 50_000_000, exists: true,
-		res: Resources{Bandwidth: 1000, Energy: 100_000}, usdt: big.NewInt(10_000_000),
+		res: Resources{FreeBandwidth: 1000, Energy: 100_000}, usdt: big.NewInt(10_000_000),
 		energy: 30_000, prices: Prices{EnergyFee: 420, BandwidthFee: 1000}, info: map[string]TxInfo{},
 	}
 }
@@ -139,26 +139,39 @@ func TestPrepareHappyPath(t *testing.T) {
 	}
 }
 
-func TestPrepareChargesOnlyBandwidthBeyondAvailableResources(t *testing.T) {
+func TestPrepareChargesFullBandwidthCostUnlessOneResourceCoversTransaction(t *testing.T) {
 	f := newFake()
-	f.res.Bandwidth = 0
-	a := newAdapter(t, f)
-	full, err := a.Prepare(context.Background(), testIntent(t, 1_000_000))
+	f.res.FreeBandwidth = 0
+	f.res.StakedBandwidth = 0
+	full, err := newAdapter(t, f).Prepare(context.Background(), testIntent(t, 1_000_000))
 	if err != nil {
 		t.Fatal(err)
 	}
 	totalBandwidth := uint64(len(full.Draft)) + bandwidthOverhead
-	available := totalBandwidth / 2
-	f.res.Bandwidth = available
+
+	// Two partial quotas must not be added together: each source must cover
+	// the complete transaction or the full byte fee is burned.
+	f.res.FreeBandwidth = totalBandwidth / 2
+	f.res.StakedBandwidth = totalBandwidth - f.res.FreeBandwidth
 	partial, err := newAdapter(t, f).Prepare(context.Background(), testIntent(t, 1_000_000))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := (totalBandwidth - available) * f.prices.BandwidthFee
+	want := totalBandwidth * f.prices.BandwidthFee
 	if partial.Fee.String() != fmt.Sprint(want) {
-		t.Fatalf("fee = %s, want %d sun for only the missing bandwidth", partial.Fee, want)
+		t.Fatalf("fee = %s, want full bandwidth cost %d sun when neither resource source covers the transaction", partial.Fee, want)
+	}
+
+	f.res.StakedBandwidth = totalBandwidth
+	covered, err := newAdapter(t, f).Prepare(context.Background(), testIntent(t, 1_000_000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if covered.Fee.String() != "0" {
+		t.Fatalf("fee = %s, want zero when one resource source covers the whole transaction", covered.Fee)
 	}
 }
+
 
 func TestPrepareWarnings(t *testing.T) {
 	cases := []struct {

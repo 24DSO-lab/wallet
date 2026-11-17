@@ -194,8 +194,10 @@ func (a *Adapter) Prepare(ctx context.Context, in domain.SendIntent) (ports.Prep
 		warns = append(warns, domain.Warning{Code: domain.WarnInsufficientEnergy,
 			Detail: "not enough energy: the missing part is paid by burning TRX"})
 	}
-	if bw := uint64(len(draft)) + bandwidthOverhead; bw > res.Bandwidth {
-		burn += (bw - res.Bandwidth) * prices.BandwidthFee
+	if bw := uint64(len(draft)) + bandwidthOverhead; bw > res.FreeBandwidth && bw > res.StakedBandwidth {
+		// TRON не суммирует частичные квоты: один источник должен покрыть
+		// полный размер транзакции, иначе сжигается полный bandwidth fee.
+		burn += bw * prices.BandwidthFee
 	}
 	if trx < burn {
 		warns = append(warns, domain.Warning{Code: domain.WarnInsufficientFeeCoin,

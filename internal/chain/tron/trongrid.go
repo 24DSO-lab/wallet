@@ -164,8 +164,9 @@ func (g *TronGrid) Resources(ctx context.Context, owner Addr) (Resources, error)
 		return limit - used
 	}
 	return Resources{
-		Bandwidth: left(r.FreeNetLimit, r.FreeNetUsed) + left(r.NetLimit, r.NetUsed),
-		Energy:    left(r.EnergyLimit, r.EnergyUsed),
+		FreeBandwidth:   left(r.FreeNetLimit, r.FreeNetUsed),
+		StakedBandwidth: left(r.NetLimit, r.NetUsed),
+		Energy:          left(r.EnergyLimit, r.EnergyUsed),
 	}, nil
 }
 

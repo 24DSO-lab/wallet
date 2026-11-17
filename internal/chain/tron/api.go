@@ -43,8 +43,9 @@ type BlockRef struct {
 
 // Resources это свободные ресурсы аккаунта на сейчас.
 type Resources struct {
-	Bandwidth uint64 // свободный и застейканный bandwidth, байты
-	Energy    uint64
+	FreeBandwidth   uint64 // свободный ежедневный bandwidth, байты
+	StakedBandwidth uint64 // свободный застейканный/делегированный bandwidth, байты
+	Energy          uint64
 }
 
 // Transfer это перевод TRC20 из истории.
