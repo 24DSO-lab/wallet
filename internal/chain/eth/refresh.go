@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"sync"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/ports"
@@ -40,16 +41,55 @@ func (a *Adapter) Refresh(ctx context.Context, w domain.PublicWallet, asset doma
 	return a.refreshUSDC(ctx, w.ID, own)
 }
 
+// runConcurrent выполняет независимые операции одновременно. Первая ошибка
+// отменяет оставшиеся запросы; лимиты и повторы по-прежнему контролирует
+// provider.Client.
+func runConcurrent(ctx context.Context, tasks ...func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errs := make(chan error, len(tasks))
+	var wg sync.WaitGroup
+	for _, task := range tasks {
+		task := task
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := task(ctx); err != nil {
+				select {
+				case errs <- err:
+				default:
+				}
+				cancel()
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		return err
+	}
+	return nil
+}
+
 func (a *Adapter) refreshETH(ctx context.Context, walletID string, own Address) (ports.Snapshot, error) {
-	wei, err := a.rpc.Balance(ctx, own)
-	if err != nil {
+	var wei *big.Int
+	var txs []IndexedTx
+	if err := runConcurrent(ctx,
+		func(ctx context.Context) error {
+			var err error
+			wei, err = a.rpc.Balance(ctx, own)
+			return err
+		},
+		func(ctx context.Context) error {
+			var err error
+			txs, err = a.idx.NormalTxs(ctx, own)
+			return err
+		},
+	); err != nil {
 		return ports.Snapshot{}, err
 	}
 	bal, err := amountOf(wei)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
-	txs, err := a.idx.NormalTxs(ctx, own)
 	if err != nil {
 		return ports.Snapshot{}, err
 	}
@@ -64,8 +104,32 @@ func (a *Adapter) refreshETH(ctx context.Context, walletID string, own Address) 
 }
 
 func (a *Adapter) refreshUSDC(ctx context.Context, walletID string, own Address) (ports.Snapshot, error) {
-	raw, err := a.rpc.Call(ctx, a.params.usdc, encodeBalanceOf(own))
-	if err != nil {
+	var raw []byte
+	var wei *big.Int
+	var transfers []IndexedTransfer
+	var normal []IndexedTx
+	if err := runConcurrent(ctx,
+		func(ctx context.Context) error {
+			var err error
+			raw, err = a.rpc.Call(ctx, a.params.usdc, encodeBalanceOf(own))
+			return err
+		},
+		func(ctx context.Context) error {
+			var err error
+			wei, err = a.rpc.Balance(ctx, own)
+			return err
+		},
+		func(ctx context.Context) error {
+			var err error
+			transfers, err = a.idx.TokenTransfers(ctx, own, a.params.usdc)
+			return err
+		},
+		func(ctx context.Context) error {
+			var err error
+			normal, err = a.idx.NormalTxs(ctx, own)
+			return err
+		},
+	); err != nil {
 		return ports.Snapshot{}, err
 	}
 	word, err := decodeWord(raw)
@@ -77,19 +141,7 @@ func (a *Adapter) refreshUSDC(ctx context.Context, walletID string, own Address)
 		return ports.Snapshot{}, err
 	}
 	// Комиссия USDC платится в ETH: его баланс показывается рядом (ADR).
-	wei, err := a.rpc.Balance(ctx, own)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
 	feeBal, err := amountOf(wei)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
-	transfers, err := a.idx.TokenTransfers(ctx, own, a.params.usdc)
-	if err != nil {
-		return ports.Snapshot{}, err
-	}
-	normal, err := a.idx.NormalTxs(ctx, own)
 	if err != nil {
 		return ports.Snapshot{}, err
 	}
