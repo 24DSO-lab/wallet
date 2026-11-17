@@ -2,6 +2,7 @@ package btc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -196,6 +197,33 @@ func TestScannerReceiveAddressUsesReceiveOnlyGapScan(t *testing.T) {
 	if got.Path != "m/84'/1'/0'/0/1" {
 		t.Fatalf("unexpected derivation path: %s", got.Path)
 	}
+}
+
+
+func TestScannerRefreshErrorIncludesAddressContext(t *testing.T) {
+	wantErr := errors.New("explorer unavailable")
+	p := &failingAddressProvider{refreshProvider: &refreshProvider{used: map[string]bool{}}, err: wantErr}
+	api, err := NewEsplora(p, domain.ProfileTest)
+	if err != nil { t.Fatal(err) }
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil { t.Fatal(err) }
+	_, err = scanner.Refresh(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}, domain.BTC)
+	if !errors.Is(err, wantErr) { t.Fatalf("error %v does not wrap provider error", err) }
+	if !strings.Contains(err.Error(), "chain=receive index=0") {
+		t.Fatalf("error lacks address context: %v", err)
+	}
+}
+
+type failingAddressProvider struct {
+	*refreshProvider
+	err error
+}
+
+func (p *failingAddressProvider) Do(ctx context.Context, req provider.Request) (*provider.Response, error) {
+	if strings.HasPrefix(req.Path, "/address/") && !strings.HasSuffix(req.Path, "/utxo") && !strings.HasSuffix(req.Path, "/txs") {
+		return nil, p.err
+	}
+	return p.refreshProvider.Do(ctx, req)
 }
 
 func TestScannerRefreshRejectsMissingXpubAndWrongAsset(t *testing.T) {

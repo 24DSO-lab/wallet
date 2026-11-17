@@ -162,7 +162,7 @@ func (s *Scanner) ReceiveAddress(ctx context.Context, wallet domain.PublicWallet
 		}
 		wg.Wait()
 		for i, derived := range batch {
-			if results[i].err != nil { return domain.Address{}, results[i].err }
+			if results[i].err != nil { return domain.Address{}, fmt.Errorf("btc: receive address lookup index=%d: %w", batch[i].index, results[i].err) }
 			info := results[i].info
 			used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
 				info.MempoolStats.Funded != 0 || info.MempoolStats.Spent != 0
@@ -235,7 +235,7 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 
 		for i, item := range batch {
 			if results[i].err != nil {
-				return nil, nil, nil, nil, nil, results[i].err
+				return nil, nil, nil, nil, nil, fmt.Errorf("btc: address lookup chain=%s index=%d: %w", chain, item.index, results[i].err)
 			}
 			info := results[i].info
 			used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
@@ -259,7 +259,7 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 			if used {
 				addressUTXOs, err := s.api.GetUTXOs(ctx, item.address)
 				if err != nil {
-					return nil, nil, nil, nil, nil, err
+					return nil, nil, nil, nil, nil, fmt.Errorf("btc: UTXO lookup chain=%s index=%d: %w", chain, item.index, err)
 				}
 				for _, u := range addressUTXOs {
 					confirmations := uint32(0)
@@ -285,7 +285,7 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 				for {
 					page, err := s.api.GetTransactions(ctx, item.address, pageCursor)
 					if err != nil {
-						return nil, nil, nil, nil, nil, err
+						return nil, nil, nil, nil, nil, fmt.Errorf("btc: transaction history lookup chain=%s index=%d: %w", chain, item.index, err)
 					}
 					for _, tx := range page {
 						if _, exists := seenTx[tx.TxID]; !exists {
