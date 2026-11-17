@@ -415,11 +415,14 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 	status := domain.TxPending
 	var at time.Time
 	if tx.Status.Confirmed {
-		status = domain.TxConfirmed
-		if tx.Status.BlockTime > 0 {
-			if tx.Status.BlockTime > uint64(^uint64(0)>>1) { return domain.Tx{}, fmt.Errorf("%w: block time overflows Unix timestamp", ErrMalformedResponse) }
-			at = time.Unix(int64(tx.Status.BlockTime), 0)
+		if tx.Status.BlockHeight == 0 || tx.Status.BlockTime == 0 {
+			return domain.Tx{}, fmt.Errorf("%w: confirmed transaction is missing block metadata", ErrMalformedResponse)
 		}
+		if tx.Status.BlockTime > uint64(^uint64(0)>>1) {
+			return domain.Tx{}, fmt.Errorf("%w: block time overflows Unix timestamp", ErrMalformedResponse)
+		}
+		status = domain.TxConfirmed
+		at = time.Unix(int64(tx.Status.BlockTime), 0)
 	}
 	return domain.Tx{
 		WalletID: walletID, Asset: domain.BTC, TxID: domain.TxID(tx.TxID),

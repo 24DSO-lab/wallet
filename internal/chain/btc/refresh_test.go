@@ -264,6 +264,21 @@ func TestScannerRefreshRejectsMissingXpubAndWrongAsset(t *testing.T) {
 }
 
 
+func TestTransactionForWalletRejectsConfirmedWithoutBlockMetadata(t *testing.T) {
+	for _, status := range []EsploraTxStatus{
+		{Confirmed: true, BlockTime: 1_700_000_000},
+		{Confirmed: true, BlockHeight: 100},
+	} {
+		_, err := transactionForWallet("w", EsploraTx{
+			TxID: strings.Repeat("d", 64), Status: status,
+			Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 100}},
+		}, map[string]struct{}{"bc1-wallet": {}})
+		if !errors.Is(err, ErrMalformedResponse) {
+			t.Fatalf("confirmed status %+v accepted without complete block metadata: %v", status, err)
+		}
+	}
+}
+
 func TestTransactionForWalletDirections(t *testing.T) {
 	ours := map[string]struct{}{"bc1-wallet": {}}
 	tests := []struct {
