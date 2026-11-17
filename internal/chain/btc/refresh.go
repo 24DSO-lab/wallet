@@ -405,6 +405,7 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 		fee = tx.Fee
 	case walletInputs.Sign() > 0 && externalOutputs.Sign() == 0:
 		direction = domain.DirectionSelf
+		fee = tx.Fee
 	}
 	amountValue, err := domain.NewAmount(amount)
 	if err != nil {

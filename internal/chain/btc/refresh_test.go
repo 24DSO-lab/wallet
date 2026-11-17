@@ -314,7 +314,7 @@ func TestTransactionForWalletDirections(t *testing.T) {
 				}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}}},
 				Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 9800}},
 			},
-			direction: domain.DirectionSelf, amount: "9800", fee: "0", counterparty: "",
+			direction: domain.DirectionSelf, amount: "9800", fee: "200", counterparty: "",
 		},
 	}
 	for _, tt := range tests {
