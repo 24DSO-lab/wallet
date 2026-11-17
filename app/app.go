@@ -542,7 +542,15 @@ func (a *App) RefreshWallet(id, asset string) (BalanceDTO, error) {
 	if err != nil {
 		return BalanceDTO{}, err
 	}
-	snapshot, err := a.svc.RefreshWallet(a.context(), id, da)
+	ctx := a.context()
+	if da == domain.BTC {
+		// Bitcoin refresh performs sequential explorer requests for the BIP84
+		// gap-limit scan. Bound the UI operation just like receive-address lookup.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, btcReceiveAddressTimeout)
+		defer cancel()
+	}
+	snapshot, err := a.svc.RefreshWallet(ctx, id, da)
 	if err != nil {
 		return BalanceDTO{}, safeError(err)
 	}
