@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/provider"
@@ -83,6 +85,92 @@ func TestScannerRefreshScansBothChainsToGapLimit(t *testing.T) {
 	}
 	if got.Asset != domain.BTC || got.FeeAsset != domain.BTC {
 		t.Fatalf("unexpected assets: %+v", got)
+	}
+}
+
+
+type concurrentRefreshProvider struct {
+	*refreshProvider
+	mu     sync.Mutex
+	active int
+	max    int
+}
+
+func (p *concurrentRefreshProvider) Do(ctx context.Context, req provider.Request) (*provider.Response, error) {
+	if strings.HasPrefix(req.Path, "/address/") && !strings.HasSuffix(req.Path, "/utxo") && !strings.HasSuffix(req.Path, "/txs") {
+		p.mu.Lock()
+		p.active++
+		if p.active > p.max {
+			p.max = p.active
+		}
+		p.mu.Unlock()
+		time.Sleep(15 * time.Millisecond)
+		defer func() {
+			p.mu.Lock()
+			p.active--
+			p.mu.Unlock()
+		}()
+	}
+	return p.refreshProvider.Do(ctx, req)
+}
+
+func TestScannerRefreshAddressLookupsAreBoundedAndConcurrent(t *testing.T) {
+	base := &refreshProvider{used: make(map[string]bool)}
+	p := &concurrentRefreshProvider{refreshProvider: base}
+	api, err := NewEsplora(p, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.Refresh(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}, domain.BTC); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	max := p.max
+	p.mu.Unlock()
+	if max <= 1 {
+		t.Fatalf("address lookups were not concurrent: max concurrency = %d", max)
+	}
+	if max > maxConcurrentAddressLookups {
+		t.Fatalf("address lookup concurrency = %d, want <= %d", max, maxConcurrentAddressLookups)
+	}
+}
+
+func TestScannerRefreshStopsAtExactGapLimitWithinBatch(t *testing.T) {
+	used := make(map[string]bool)
+	for _, chain := range []domain.AddressChain{domain.ChainReceive, domain.ChainChange} {
+		for _, index := range []byte{0, AddressGapLimit + 1} {
+			program := make([]byte, 20)
+			program[0] = index
+			if chain == domain.ChainChange {
+				program[1] = 1
+			}
+			used[testWitnessAddress("tb", program)] = true
+		}
+	}
+	api, err := NewEsplora(&refreshProvider{used: used}, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scanner.Refresh(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}, domain.BTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 2 * (AddressGapLimit + 1)
+	if len(got.Addresses) != want {
+		t.Fatalf("scanned %d addresses, want exactly %d", len(got.Addresses), want)
+	}
+	for _, address := range got.Addresses {
+		if address.Index > AddressGapLimit {
+			t.Fatalf("address beyond exact gap boundary was retained: index %d", address.Index)
+		}
 	}
 }
 
