@@ -249,7 +249,7 @@ func (g *TronGrid) TRC20Transfers(ctx context.Context, contract, owner Addr, lim
 				} `json:"token_info"`
 			} `json:"data"`
 		}
-		if err := g.get(ctx, "/v1/accounts/"+owner.String()+"/transactions/trc20", q, &r); err != nil {
+		if err := g.get(ctx, "/v1/accounts/"+owner.String()+"/transactions/trc20", pageQuery, &r); err != nil {
 			return nil, err
 		}
 		out := make([]Transfer, 0, len(r.Data))

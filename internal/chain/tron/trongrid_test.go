@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,7 +28,19 @@ type stubReply struct {
 
 func (s *stubClient) Do(_ context.Context, r provider.Request) (*provider.Response, error) {
 	s.reqs = append(s.reqs, r)
-	rep, ok := s.routes[r.Path]
+	key := r.Path
+	if r.Query.Get("only_unconfirmed") == "true" {
+		key += "|unconfirmed"
+	} else if r.Query.Get("only_confirmed") == "true" {
+		key += "|confirmed"
+	}
+	if cursor := r.Query.Get("fingerprint"); cursor != "" {
+		key += "|" + cursor
+	}
+	rep, ok := s.routes[key]
+	if !ok {
+		rep, ok = s.routes[r.Path]
+	}
 	if !ok {
 		return nil, domain.NewError(domain.CodeProviderBadResponse, nil)
 	}
@@ -152,7 +165,7 @@ func TestTransfers(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	if s.reqs[0].Query.Get("limit") != "200" || s.reqs[0].Query.Get("contract_address") != USDTContractMain ||
-		s.reqs[0].Query.Get("only_confirmed") != "true" || s.reqs[1].Query.Get("only_confirmed") != "false" {
+		s.reqs[0].Query.Get("only_confirmed") != "true" || s.reqs[1].Query.Get("only_unconfirmed") != "true" {
 		t.Errorf("query %v / %v", s.reqs[0].Query, s.reqs[1].Query)
 	}
 	for name, body := range map[string]string{
@@ -165,6 +178,61 @@ func TestTransfers(t *testing.T) {
 		if _, err := g.TRC20Transfers(context.Background(), usdt, me, 10); err == nil {
 			t.Errorf("%s accepted", name)
 		}
+	}
+}
+
+func TestTRC20TransfersPaginatesConfirmedAndUnconfirmed(t *testing.T) {
+	me, _ := ParseAddress(otherAddr)
+	contract, _ := usdtContract(domain.ProfileMain)
+	path := "/v1/accounts/" + otherAddr + "/transactions/trc20"
+	row := func(id byte) string {
+		return `{"transaction_id":"` + hex.EncodeToString(bytes32(id)) + `","token_info":{"address":"` + USDTContractMain + `"},"block_timestamp":1700000000000,"from":"` + USDTContractMain + `","to":"` + otherAddr + `","type":"Transfer","value":"5000000"}`
+	}
+	g, s := grid(map[string]stubReply{
+		path + "|confirmed": {body: `{"data":[` + row(1) + `],"meta":{"fingerprint":"next-confirmed"}}`},
+		path + "|confirmed|next-confirmed": {body: `{"data":[` + row(2) + `]}`},
+		path + "|unconfirmed": {body: `{"data":[` + row(3) + `]}`},
+	})
+	got, err := g.TRC20Transfers(context.Background(), contract, me, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || !got[0].Confirmed || !got[1].Confirmed || got[2].Confirmed {
+		t.Fatalf("paginated transfers = %+v", got)
+	}
+	if len(s.reqs) != 3 || s.reqs[1].Query.Get("fingerprint") != "next-confirmed" ||
+		s.reqs[2].Query.Get("only_unconfirmed") != "true" {
+		t.Fatalf("pagination requests = %+v", s.reqs)
+	}
+}
+
+func TestTRC20TransfersRejectsPaginationLoopAndTruncation(t *testing.T) {
+	me, _ := ParseAddress(otherAddr)
+	contract, _ := usdtContract(domain.ProfileMain)
+	path := "/v1/accounts/" + otherAddr + "/transactions/trc20"
+	row := `{"data":[],"meta":{"fingerprint":"same"}}`
+	g, _ := grid(map[string]stubReply{
+		path + "|confirmed": {body: row},
+		path + "|confirmed|same": {body: row},
+	})
+	if _, err := g.TRC20Transfers(context.Background(), contract, me, 200); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("repeated cursor error = %v", err)
+	}
+
+	routes := map[string]stubReply{}
+	cursor := ""
+	for page := 0; page < maxTransferHistoryPages; page++ {
+		key := path + "|confirmed"
+		if cursor != "" {
+			key += "|" + cursor
+		}
+		next := "cursor-" + strconv.Itoa(page+1)
+		routes[key] = stubReply{body: `{"data":[],"meta":{"fingerprint":"` + next + `"}}`}
+		cursor = next
+	}
+	g, _ = grid(routes)
+	if _, err := g.TRC20Transfers(context.Background(), contract, me, 200); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("page cap error = %v", err)
 	}
 }
 
