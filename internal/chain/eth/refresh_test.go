@@ -233,8 +233,8 @@ func TestUSDCHistoryIgnoresForeignTokenAndStrangers(t *testing.T) {
 	foreign := transfer(hash1, other, own, 1_000_000, 1700000000)
 	foreign.Contract = other // подменённый контракт в ответе индексатора
 	stranger := transfer(hash2, other, other, 1_000_000, 1700000000)
-	h := usdcHistory("w1", own, mustAddr2(USDCSepoliaContract), []IndexedTransfer{foreign, stranger}, nil)
-	if len(h) != 0 {
+	h, err := usdcHistory("w1", own, mustAddr2(USDCSepoliaContract), []IndexedTransfer{foreign, stranger}, nil)
+	if err != nil || len(h) != 0 {
 		t.Errorf("foreign records accepted: %+v", h)
 	}
 }
@@ -260,11 +260,34 @@ func TestUSDCHistoryAggregatesPerHash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := usdcHistory("w1", own, contract, tt.tr, nil)
-			if len(h) != 1 || h[0].Direction != tt.dir || h[0].Amount.String() != tt.amt {
-				t.Errorf("history = %+v", h)
+			normal := []IndexedTx{{Hash: hash1, From: own, GasUsed: 21_000, GasPrice: big.NewInt(2_000_000_000)}}
+			h, err := usdcHistory("w1", own, contract, tt.tr, normal)
+			if err != nil || len(h) != 1 || h[0].Direction != tt.dir || h[0].Amount.String() != tt.amt {
+				t.Errorf("history = %+v, err=%v", h, err)
 			}
 		})
+	}
+}
+
+func TestUSDCHistoryRejectsOutgoingTransferWithoutFeeMetadata(t *testing.T) {
+	own, other := mustAddr2(addrA), mustAddr2(addrB)
+	contract := mustAddr2(USDCSepoliaContract)
+	outgoing := transfer(hash1, own, other, 5_000_000, 1700000000)
+	if _, err := usdcHistory("w1", own, contract, []IndexedTransfer{outgoing}, nil); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("missing fee transaction error = %v", err)
+	}
+	normal := []IndexedTx{{Hash: hash1, From: own, GasUsed: 0, GasPrice: big.NewInt(2_000_000_000)}}
+	if _, err := usdcHistory("w1", own, contract, []IndexedTransfer{outgoing}, normal); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("zero gas usage error = %v", err)
+	}
+}
+
+func TestETHHistoryRejectsInvalidOutgoingFee(t *testing.T) {
+	own, other := mustAddr2(addrA), mustAddr2(addrB)
+	tx := IndexedTx{Hash: hash1, From: own, To: other, HasTo: true, Value: big.NewInt(1),
+		GasUsed: 0, GasPrice: big.NewInt(2_000_000_000), Time: time.Unix(1700000000, 0)}
+	if _, err := ethHistory("w1", own, []IndexedTx{tx}); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Fatalf("invalid outgoing fee error = %v", err)
 	}
 }
 

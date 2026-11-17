@@ -72,7 +72,10 @@ func (a *Adapter) refreshETH(ctx context.Context, walletID string, own Address) 
 	if historyErr != nil {
 		snap.HistoryError = string(domain.CodeOf(historyErr))
 	} else {
-		snap.History = ethHistory(walletID, own, txs)
+		snap.History, err = ethHistory(walletID, own, txs)
+		if err != nil {
+			snap.HistoryError = string(domain.CodeOf(err))
+		}
 	}
 	return snap, nil
 }
@@ -135,7 +138,10 @@ func (a *Adapter) refreshUSDC(ctx context.Context, walletID string, own Address)
 	case normalErr != nil:
 		snap.HistoryError = string(domain.CodeOf(normalErr))
 	default:
-		snap.History = usdcHistory(walletID, own, a.params.usdc, transfers, normal)
+		snap.History, err = usdcHistory(walletID, own, a.params.usdc, transfers, normal)
+		if err != nil {
+			snap.HistoryError = string(domain.CodeOf(err))
+		}
 	}
 	return snap, nil
 }
@@ -149,13 +155,16 @@ func amountOf(n *big.Int) (domain.Amount, error) {
 }
 
 // feeOf считает комиссию, которую заплатил отправитель: газ на цену газа.
-func feeOf(tx IndexedTx) domain.Amount {
+func feeOf(tx IndexedTx) (domain.Amount, error) {
+	if tx.GasUsed == 0 || tx.GasPrice == nil || tx.GasPrice.Sign() <= 0 {
+		return domain.Amount{}, badResponse(errors.New("eth: transaction has invalid gas fee fields"))
+	}
 	fee := new(big.Int).Mul(new(big.Int).SetUint64(tx.GasUsed), tx.GasPrice)
 	amt, err := domain.NewAmount(fee)
 	if err != nil {
-		return domain.Amount{}
+		return domain.Amount{}, badResponse(fmt.Errorf("eth: transaction fee out of range: %w", err))
 	}
-	return amt
+	return amt, nil
 }
 
 func direction(from, to, own Address) domain.Direction {
@@ -181,7 +190,7 @@ func status(failed bool) domain.TxStatus {
 // Вызовы контрактов с нулевой суммой (перевод USDC, approve) в историю ETH не
 // входят: их комиссию показывает история токена. Дубликаты по хэшу
 // отбрасываются.
-func ethHistory(walletID string, own Address, txs []IndexedTx) []domain.Tx {
+func ethHistory(walletID string, own Address, txs []IndexedTx) ([]domain.Tx, error) {
 	seen := make(map[string]struct{}, len(txs))
 	var out []domain.Tx
 	for _, tx := range txs {
@@ -217,19 +226,25 @@ func ethHistory(walletID string, own Address, txs []IndexedTx) []domain.Tx {
 		}
 		switch rec.Direction {
 		case domain.DirectionOut:
-			rec.Fee = feeOf(tx)
+			rec.Fee, err = feeOf(tx)
+			if err != nil {
+				return nil, err
+			}
 			if tx.HasTo {
 				rec.Counterparty = tx.To.String()
 			}
 		case domain.DirectionIn:
 			rec.Counterparty = tx.From.String()
 		case domain.DirectionSelf:
-			rec.Fee = feeOf(tx)
+			rec.Fee, err = feeOf(tx)
+			if err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, rec)
 	}
 	sortHistory(out)
-	return out
+	return out, nil
 }
 
 // usdcHistory склеивает переводы токена с обычными транзакциями. Переводы
@@ -238,7 +253,7 @@ func ethHistory(walletID string, own Address, txs []IndexedTx) []domain.Tx {
 // платили. В одной транзакции переводов может быть несколько: запись одна на
 // хэш (ключ записи это кошелёк, актив и хэш), сумма это чистое изменение
 // баланса.
-func usdcHistory(walletID string, own, contract Address, transfers []IndexedTransfer, normal []IndexedTx) []domain.Tx {
+func usdcHistory(walletID string, own, contract Address, transfers []IndexedTransfer, normal []IndexedTx) ([]domain.Tx, error) {
 	byHash := make(map[string]IndexedTx, len(normal))
 	for _, tx := range normal {
 		byHash[tx.Hash] = tx
@@ -249,6 +264,7 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		counterIn   Address
 		counterOut  Address
 		onlySelf    bool
+		sent        bool
 		block       uint64
 		time        IndexedTransfer
 	}
@@ -270,6 +286,7 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		switch {
 		case tr.From == own && tr.To == own:
 			// перевод себе не меняет баланс, но запись о нём нужна
+			g.sent = true
 			g.self.Add(&g.self, tr.Value)
 		case tr.To == own:
 			g.onlySelf = false
@@ -277,6 +294,7 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 			g.counterIn = tr.From
 		default:
 			g.onlySelf = false
+			g.sent = true
 			g.out.Add(&g.out, tr.Value)
 			g.counterOut = tr.To
 		}
@@ -312,16 +330,23 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		}
 		amt, err := domain.NewAmount(net)
 		if err != nil {
-			continue
+			return nil, badResponse(fmt.Errorf("eth: USDC transfer amount out of range: %w", err))
 		}
 		rec.Amount = amt
-		if tx, ok := byHash[hash]; ok && tx.From == own {
-			rec.Fee = feeOf(tx)
+		if g.sent {
+			tx, ok := byHash[hash]
+			if !ok || tx.From != own {
+				return nil, badResponse(errors.New("eth: outgoing USDC transfer has no matching sender transaction"))
+			}
+			rec.Fee, err = feeOf(tx)
+			if err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, rec)
 	}
 	sortHistory(out)
-	return out
+	return out, nil
 }
 
 // sortHistory упорядочивает записи от новых к старым, при равенстве по хэшу.
