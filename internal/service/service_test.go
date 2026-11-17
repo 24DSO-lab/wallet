@@ -53,6 +53,47 @@ func createTestWallet(t *testing.T, svc *service.Service) domain.Wallet {
 	return wallet
 }
 
+type receiveAddressChain struct {
+	*testkit.FakeChain
+	address domain.Address
+	calls   int
+}
+
+func (c *receiveAddressChain) ReceiveAddress(_ context.Context, _ domain.PublicWallet, _ domain.Asset) (domain.Address, error) {
+	c.calls++
+	return c.address, nil
+}
+
+func TestGetReceiveAddressRefreshesCachedBitcoinAddress(t *testing.T) {
+	chain := &receiveAddressChain{
+		FakeChain: testkit.NewFakeChain(testkit.FakeChainOptions{Network: domain.NetworkBitcoin}),
+		address: domain.Address{
+			WalletID: "wallet-1", Network: domain.NetworkBitcoin,
+			Address: "tb1qfresh", Path: "m/84'/1'/0'/0/1",
+			Chain: domain.ChainReceive, Index: 1,
+		},
+	}
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+
+	// This cached address may have become used since the previous refresh.
+	if err := st.Addresses().Upsert(context.Background(), []domain.Address{{
+		WalletID: wallet.ID, Network: domain.NetworkBitcoin,
+		Address: "tb1qstale", Path: "m/84'/1'/0'/0/0",
+		Chain: domain.ChainReceive, Index: 0, Used: false,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.GetReceiveAddress(context.Background(), wallet.ID, domain.BTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Address != "tb1qfresh" || chain.calls != 1 {
+		t.Fatalf("GetReceiveAddress = %q, provider calls = %d; want fresh address and one provider call", got.Address, chain.calls)
+	}
+}
+
 func TestCreateWalletReturnsOneTimeMnemonicAndPersistsPublicData(t *testing.T) {
 	svc, st := testService(t)
 	sec := testSecrets()
