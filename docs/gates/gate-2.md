@@ -15,7 +15,7 @@ Unit-тесты проверяют обработку и агрегацию от
 - Сервисные тесты для трёх сочетаний отказа истории и fee balance; DTO-тест предупреждений.
 - BTC: корректный counterparty при co-input, комиссия self-транзакции и отказ от confirmed-записей без block height/time.
 - USDC: агрегация нескольких Transfer events и нескольких self-transfer events одного txid.
-- USDT: агрегация нескольких TRC20 Transfer events одного txid и расчёт комиссии один раз; fee quote учитывает только bandwidth сверх доступного ресурса.
+- USDT: агрегация нескольких TRC20 Transfer events одного txid и расчёт комиссии один раз; пагинация TronGrid fingerprint с явной ошибкой при превышении лимита; fee quote учитывает только bandwidth сверх доступного ресурса.
 
 ## Статус выполнения кода
 
