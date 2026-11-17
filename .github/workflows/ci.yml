@@ -1,14 +1,13 @@
 name: ci
 
+# Автоматический CI временно отключён до завершения разработки.
+# В конце разработки проверки можно запустить вручную через workflow_dispatch.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# Новые коммиты отменяют устаревшие проверки той же ветки.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

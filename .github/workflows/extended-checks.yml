@@ -1,9 +1,8 @@
 name: extended-checks
 
+# Расширенные проверки также запускаются только вручную — в конце разработки.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "23 4 * * 1"
 
 permissions:
   contents: read
