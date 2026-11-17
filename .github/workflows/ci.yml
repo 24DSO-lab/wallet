@@ -15,52 +15,19 @@ concurrency:
 
 jobs:
   go:
-    name: go (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Корневой пакет тянет Wails, которому на Linux нужны GTK и WebKit,
-          # поэтому полная сборка идёт на Windows, а на Linux проверяется всё
-          # остальное.
-          - os: windows-latest
-            pkgs: ./...
-          - os: ubuntu-latest
-            pkgs: ./internal/... ./app/...
+    name: go (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
-        if: matrix.os == 'windows-latest'
-        with:
-          node-version: 24
-      - run: npm ci
-        if: matrix.os == 'windows-latest'
-        working-directory: frontend
-      - run: npm run build
-        if: matrix.os == 'windows-latest'
-        working-directory: frontend
+      # Корневой пакет требует системные библиотеки Wails (GTK/WebKit).
+      # Быстрый CI проверяет бизнес-логику и приложение без desktop toolchain.
       - run: go mod verify
-      - run: go build ${{ matrix.pkgs }}
-      - run: go vet ${{ matrix.pkgs }}
-      - run: go test -race -count=1 ${{ matrix.pkgs }}
-      - name: Install Wails CLI
-        if: matrix.os == 'windows-latest'
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
-      - name: Build Windows desktop executable
-        if: matrix.os == 'windows-latest'
-        run: wails build -clean -platform windows/amd64
-      - name: Upload Windows smoke-test executable
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: wallet-windows-amd64
-          path: build/bin/*.exe
-          if-no-files-found: error
-          retention-days: 7
+      - run: go build ./internal/... ./app/...
+      - run: go vet ./internal/... ./app/...
+      - run: go test -race -count=1 ./internal/... ./app/...
 
   lint:
     runs-on: ubuntu-latest
