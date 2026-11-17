@@ -361,7 +361,8 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
 		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
 	}
-	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
+	wallet, err := s.store.Wallets().Get(ctx, walletID)
+	if err != nil {
 		return domain.Address{}, err
 	}
 	addresses, err := s.store.Addresses().List(ctx, walletID, info.Network)
@@ -372,6 +373,30 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 		if !address.Used {
 			return address, nil
 		}
+	}
+
+	// BTC receive-address lookup is intentionally separate from a full refresh:
+	// it checks only the external BIP84 chain and does not fetch balances,
+	// UTXOs, transaction history or the current block height.
+	if asset == domain.BTC {
+		chain := s.chains[info.Network]
+		receiver, supported := chain.(ports.ReceiveAddressAdapter)
+		if !supported {
+			return domain.Address{}, domain.NewError(domain.CodeProviderUnavailable, ErrChainMissing)
+		}
+		address, err := receiver.ReceiveAddress(ctx, wallet.PublicWallet, asset)
+		if err != nil {
+			return domain.Address{}, err
+		}
+		if address.WalletID != walletID || address.Network != info.Network ||
+			address.Chain != domain.ChainReceive || !address.Valid() ||
+			chain.ValidateAddress(address.Address) != nil {
+			return domain.Address{}, domain.NewError(domain.CodeProviderBadResponse, errors.New("adapter returned an invalid receive address"))
+		}
+		if err := s.store.Addresses().Upsert(ctx, []domain.Address{address}); err != nil {
+			return domain.Address{}, err
+		}
+		return address, nil
 	}
 	return domain.Address{}, domain.NewError(domain.CodeNotFound, domain.ErrNotFound)
 }
