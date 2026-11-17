@@ -125,6 +125,64 @@ func (s *Scanner) Refresh(ctx context.Context, wallet domain.PublicWallet, asset
 	return result, nil
 }
 
+// ReceiveAddress scans only the external BIP84 chain and returns its first
+// unused address after confirming the full gap limit. It deliberately skips
+// tip, UTXO and transaction-history requests used by a full wallet refresh.
+func (s *Scanner) ReceiveAddress(ctx context.Context, wallet domain.PublicWallet) (domain.Address, error) {
+	if wallet.ID == "" || wallet.BTCXpub == "" {
+		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, ErrMissingXpub)
+	}
+	var candidate domain.Address
+	var gap uint32
+	for first := uint32(0); first < s.maxScan; {
+		batchSize := uint32(maxConcurrentAddressLookups)
+		if remaining := s.maxScan - first; batchSize > remaining {
+			batchSize = remaining
+		}
+		type item struct { address, path string; index uint32 }
+		batch := make([]item, batchSize)
+		for i := range batch {
+			index := first + uint32(i)
+			address, path, err := s.derive.DeriveAddress(wallet.BTCXpub, s.profile, domain.ChainReceive, index)
+			if err != nil { return domain.Address{}, fmt.Errorf("%w: %w", ErrAddressDerivation, err) }
+			if err := ValidateAddress(s.profile, address); err != nil {
+				return domain.Address{}, fmt.Errorf("%w: derived address failed network validation", ErrAddressDerivation)
+			}
+			batch[i] = item{address: address, path: path, index: index}
+		}
+		type result struct { info AddressInfo; err error }
+		results := make([]result, len(batch))
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				results[i].info, results[i].err = s.api.GetAddress(ctx, batch[i].address)
+			}(i)
+		}
+		wg.Wait()
+		for i, derived := range batch {
+			if results[i].err != nil { return domain.Address{}, results[i].err }
+			info := results[i].info
+			used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
+				info.MempoolStats.Funded != 0 || info.MempoolStats.Spent != 0
+			address := domain.Address{WalletID: wallet.ID, Network: domain.NetworkBitcoin,
+				Address: derived.address, Path: derived.path, Chain: domain.ChainReceive,
+				Index: derived.index, Used: used}
+			if used {
+				gap = 0
+				candidate = domain.Address{}
+				continue
+			}
+			if gap == 0 { candidate = address }
+			gap++
+			if gap >= s.gap { return candidate, nil }
+		}
+		first += batchSize
+	}
+	return domain.Address{}, ErrAddressScanLimit
+}
+
 func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, chain domain.AddressChain, tip uint64) ([]domain.Address, *big.Int, *big.Int, []domain.UTXO, []EsploraTx, error) {
 	type derivedAddress struct {
 		address string
