@@ -45,6 +45,12 @@ type ChainAdapter interface {
 	Status(ctx context.Context, id domain.TxID) (TxStatus, error)
 }
 
+// LiveVerifier revalidates provider-dependent transaction state immediately
+// before signing. Implementations must reject drafts made stale by another send.
+type LiveVerifier interface {
+	VerifyLive(ctx context.Context, prepared Prepared, intent domain.SendIntent) error
+}
+
 // Replacement describes a verified Bitcoin fee-bump draft for an existing
 // accepted but unconfirmed transaction.
 type Replacement struct {

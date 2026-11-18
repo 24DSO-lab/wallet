@@ -767,6 +767,13 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 	if err := chain.Verify(prepared, intent); err != nil {
 		return "", err
 	}
+	// Some networks bind drafts to mutable account state. Revalidate that state
+	// after the user confirms and immediately before asking the keystore to sign.
+	if live, ok := chain.(ports.LiveVerifier); ok {
+		if err := live.VerifyLive(ctx, prepared, intent); err != nil {
+			return "", err
+		}
+	}
 	signatures, err := s.keystore.Sign(ctx, wallet.KeystoreID, sec, prepared.Digests)
 	if err != nil {
 		return "", err

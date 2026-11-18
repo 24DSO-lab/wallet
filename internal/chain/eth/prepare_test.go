@@ -278,6 +278,26 @@ func TestPrepareUSDCRejects(t *testing.T) {
 	})
 }
 
+func TestVerifyLiveRejectsStaleAccountNonce(t *testing.T) {
+	a, rpc, prepared := prepareETH(t)
+	if err := a.VerifyLive(context.Background(), prepared, ethIntent(t)); err != nil {
+		t.Fatalf("VerifyLive rejected current nonce: %v", err)
+	}
+	rpc.nonce++
+	if err := a.VerifyLive(context.Background(), prepared, ethIntent(t)); domain.CodeOf(err) != domain.CodeDraftExpired {
+		t.Fatalf("VerifyLive error = %v, want draft_expired after nonce changed", err)
+	}
+}
+
+func TestVerifyLivePropagatesPendingNonceFailure(t *testing.T) {
+	a, rpc, prepared := prepareETH(t)
+	want := errors.New("pending nonce unavailable")
+	rpc.nonceEr = want
+	if err := a.VerifyLive(context.Background(), prepared, ethIntent(t)); !errors.Is(err, want) {
+		t.Fatalf("VerifyLive error = %v, want underlying provider error", err)
+	}
+}
+
 func TestVerifyAcceptsPrepared(t *testing.T) {
 	a, _, p := prepareETH(t)
 	if err := a.Verify(p, ethIntent(t)); err != nil {
