@@ -1,13 +1,14 @@
 package btc
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -146,7 +147,7 @@ func (e *Esplora) GetUTXOs(ctx context.Context, address string) ([]EsploraUTXO, 
 			BlockTime   uint64 `json:"block_time"`
 		} `json:"status"`
 	}
-	if err := e.getJSON(ctx, "/address/"+url.PathEscape(address)+"/utxo", &raw); err != nil {
+	if err := e.getJSONArray(ctx, "/address/"+url.PathEscape(address)+"/utxo", &raw); err != nil {
 		return nil, err
 	}
 	out := make([]EsploraUTXO, 0, len(raw))
@@ -186,7 +187,7 @@ func (e *Esplora) GetTransactions(ctx context.Context, address, lastSeenTxID str
 		path += "/chain/" + lastSeenTxID
 	}
 	var out []EsploraTx
-	if err := e.getJSON(ctx, path, &out); err != nil {
+	if err := e.getJSONArray(ctx, path, &out); err != nil {
 		return nil, err
 	}
 	for i := range out {
@@ -272,6 +273,24 @@ func (e *Esplora) getJSON(ctx context.Context, path string, dst any) error {
 	}
 	if err := json.Unmarshal(resp.Body, dst); err != nil {
 		return fmt.Errorf("%w: invalid JSON", ErrMalformedResponse)
+	}
+	return nil
+}
+
+// getJSONArray rejects JSON null and non-array values. encoding/json accepts
+// null when decoding into a slice, which would otherwise hide an invalid
+// provider response as a valid empty result.
+func (e *Esplora) getJSONArray(ctx context.Context, path string, dst any) error {
+	resp, err := e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: path})
+	if err != nil {
+		return err
+	}
+	body := bytes.TrimSpace(resp.Body)
+	if len(body) == 0 || body[0] != '[' {
+		return ErrMalformedResponse
+	}
+	if err := json.Unmarshal(body, dst); err != nil {
+		return fmt.Errorf("%w: invalid JSON array", ErrMalformedResponse)
 	}
 	return nil
 }

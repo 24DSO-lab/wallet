@@ -3,8 +3,8 @@ package btc
 import (
 	"context"
 	"errors"
-	"net/http"
 	"math"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -80,6 +80,14 @@ func TestEsploraGetAddressRejectsIncompleteStats(t *testing.T) {
 	}
 }
 
+func TestEsploraGetUTXOsRejectsNullResponse(t *testing.T) {
+	p := &recordingProvider{response: provider.Response{Status: http.StatusOK, Body: []byte("null")}}
+	api, _ := NewEsplora(p, domain.ProfileTest)
+	if _, err := api.GetUTXOs(context.Background(), validTestAddress()); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("expected malformed response for null UTXO list, got %v", err)
+	}
+}
+
 func TestEsploraGetUTXOsRejectsMalformedTxID(t *testing.T) {
 	p := &recordingProvider{response: provider.Response{Body: []byte(`[{"txid":"bad","vout":0,"value":42,"status":{"confirmed":false}}]`)}}
 	api, _ := NewEsplora(p, domain.ProfileTest)
@@ -107,6 +115,14 @@ func TestEsploraGetUTXOsRejectsIncompleteOrDuplicateEntries(t *testing.T) {
 				t.Fatalf("expected malformed response, got %v", err)
 			}
 		})
+	}
+}
+
+func TestEsploraGetTransactionsRejectsNullResponse(t *testing.T) {
+	p := &recordingProvider{response: provider.Response{Status: http.StatusOK, Body: []byte("null")}}
+	api, _ := NewEsplora(p, domain.ProfileTest)
+	if _, err := api.GetTransactions(context.Background(), validTestAddress(), ""); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("expected malformed response for null transaction list, got %v", err)
 	}
 }
 
