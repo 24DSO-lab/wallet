@@ -28,7 +28,7 @@ async function refreshWalletAsset(id:string,asset:Asset,reload=true):Promise<'ok
  refreshingAssets.value={...refreshingAssets.value,[key]:true}
  try{
   const result=await api.refresh(id,asset)
-  const warnings=result.balance.warnings??[]
+  const warnings=result.warnings??[]
   refreshWarnings.value={...refreshWarnings.value,[id]:{...(refreshWarnings.value[id]??{}),[asset]:warnings}}
   if(reload)wallets.value=await api.wallets()
   return warnings.length?'warning':'ok'
