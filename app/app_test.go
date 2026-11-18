@@ -336,6 +336,8 @@ func TestLockSessionStateCanBeUsedWhileProfileWriteLockIsHeld(t *testing.T) {
 func TestLockForRestoreRechecksSessionAfterAcquiringTransactionLock(t *testing.T) {
 	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
 	a.locked = false
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
 
 	// Model Lock completing while RestoreBackup is still in the native picker.
 	a.Lock()
@@ -346,6 +348,24 @@ func TestLockForRestoreRechecksSessionAfterAcquiringTransactionLock(t *testing.T
 	}
 	if err == nil || err.Error() != "session_locked" {
 		t.Fatalf("lockForRestore error = %v, want session_locked", err)
+	}
+}
+
+func TestLockForBackupRechecksSessionAfterDirectoryPicker(t *testing.T) {
+	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
+	a.locked = false
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+
+	// Model Lock completing after the user chose a backup destination.
+	a.Lock()
+	unlock, err := a.lockForBackup()
+	if unlock != nil {
+		unlock()
+		t.Fatal("lockForBackup returned an unlock function for a locked session")
+	}
+	if err == nil || err.Error() != "session_locked" {
+		t.Fatalf("lockForBackup error = %v, want session_locked", err)
 	}
 }
 

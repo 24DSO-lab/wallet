@@ -980,6 +980,23 @@ func (a *App) lockForRestore() (func(), error) {
 	return unlock, nil
 }
 
+// lockForBackup keeps the session unlocked for the complete backup operation.
+// It is acquired only after the native directory picker returns, so Lock never
+// waits for a user-controlled dialog.
+func (a *App) lockForBackup() (func(), error) {
+	a.transactionMu.RLock()
+	unlock := a.transactionMu.RUnlock
+	if err := a.ready(); err != nil {
+		unlock()
+		return nil, err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
+}
+
 func (a *App) CreateBackup(password string) (bool, error) {
 	// Keep password verification and backup creation bound to the same profile,
 	// even while the native directory picker is open.
@@ -1009,9 +1026,11 @@ func (a *App) CreateBackup(password string) (bool, error) {
 	if destination == "" {
 		return false, nil
 	}
-	if err := a.requireUnlocked(); err != nil {
+	unlockTransaction, err := a.lockForBackup()
+	if err != nil {
 		return false, err
 	}
+	defer unlockTransaction()
 	if err := create(a.context(), destination); err != nil {
 		return false, safeError(err)
 	}
