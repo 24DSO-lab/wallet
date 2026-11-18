@@ -54,6 +54,7 @@ type pendingDraft struct {
 // App is the Wails facade. It owns only UI session state and prepared drafts;
 // persistent wallet state remains in service/store.
 type App struct {
+	profileMu     sync.RWMutex // serializes profile changes/restores with transaction preparation and confirmation
 	mu            sync.Mutex
 	ctx           context.Context
 	svc           *service.Service
@@ -616,6 +617,8 @@ func (a *App) RefreshWallet(id, asset string) (BalanceDTO, error) {
 }
 
 func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
 	if err := a.ready(); err != nil {
 		return QuoteDTO{}, err
 	}
@@ -650,6 +653,8 @@ func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, 
 
 // PrepareRBF creates a fee-bump quote for an accepted, unconfirmed BTC send.
 func (a *App) PrepareRBF(walletID, txid string) (QuoteDTO, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
 	if err := a.ready(); err != nil { return QuoteDTO{}, err }
 	if err := a.requireUnlocked(); err != nil { return QuoteDTO{}, err }
 	replacement, err := a.currentService().PrepareRBF(a.context(), walletID, domain.TxID(txid))
@@ -664,6 +669,8 @@ func (a *App) PrepareRBF(walletID, txid string) (QuoteDTO, error) {
 }
 
 func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
 	if err := a.ready(); err != nil {
 		return "", err
 	}
@@ -713,6 +720,8 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 }
 
 func (a *App) SetProfile(profile string) error {
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
 	p := domain.Profile(profile)
 	if !p.Valid() {
 		return errors.New("invalid_input")
@@ -831,6 +840,8 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 		return false, err
 	}
 
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
 	a.Lock()
 	passwordBytes := secret.FromString(password)
 	defer passwordBytes.Wipe()
