@@ -69,6 +69,7 @@ func TestEsploraGetAddressRejectsIncompleteStats(t *testing.T) {
 		{name: "missing funded counter", body: `{"chain_stats":{"spent_txo_sum":0},"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
 		{name: "null spent counter", body: `{"chain_stats":{"funded_txo_sum":0,"spent_txo_sum":null},"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
 		{name: "empty object", body: `{}`},
+		{name: "confirmed spent exceeds funded", body: `{"chain_stats":{"funded_txo_sum":100,"spent_txo_sum":101},"mempool_stats":{"funded_txo_sum":0,"spent_txo_sum":0}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &recordingProvider{response: provider.Response{Status: http.StatusOK, Body: []byte(tc.body)}}

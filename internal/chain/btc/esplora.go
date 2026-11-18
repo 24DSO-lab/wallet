@@ -127,6 +127,12 @@ func (e *Esplora) GetAddress(ctx context.Context, address string) (AddressInfo, 
 		raw.MempoolStats.Funded == nil || raw.MempoolStats.Spent == nil {
 		return AddressInfo{}, ErrMalformedResponse
 	}
+	// Confirmed outputs can only be spent after they have been funded to this
+	// address. Unlike mempool counters, confirmed spent totals cannot include
+	// spends of outputs funded by an unconfirmed transaction.
+	if *raw.ChainStats.Spent > *raw.ChainStats.Funded {
+		return AddressInfo{}, ErrMalformedResponse
+	}
 	return AddressInfo{
 		ChainStats: AddressStats{Funded: *raw.ChainStats.Funded, Spent: *raw.ChainStats.Spent},
 		MempoolStats: AddressStats{Funded: *raw.MempoolStats.Funded, Spent: *raw.MempoolStats.Spent},
