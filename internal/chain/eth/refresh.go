@@ -261,9 +261,13 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 
 	type agg struct {
 		in, out, self big.Int
-		counterIn   Address
-		counterOut  Address
-		onlySelf    bool
+		counterIn        Address
+		counterOut       Address
+		hasCounterIn     bool
+		hasCounterOut    bool
+		mixedCounterIn   bool
+		mixedCounterOut  bool
+		onlySelf         bool
 		sent        bool
 		block       uint64
 		time        IndexedTransfer
@@ -291,12 +295,20 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 		case tr.To == own:
 			g.onlySelf = false
 			g.in.Add(&g.in, tr.Value)
-			g.counterIn = tr.From
+			if !g.hasCounterIn {
+				g.counterIn, g.hasCounterIn = tr.From, true
+			} else if g.counterIn != tr.From {
+				g.mixedCounterIn = true
+			}
 		default:
 			g.onlySelf = false
 			g.sent = true
 			g.out.Add(&g.out, tr.Value)
-			g.counterOut = tr.To
+			if !g.hasCounterOut {
+				g.counterOut, g.hasCounterOut = tr.To, true
+			} else if g.counterOut != tr.To {
+				g.mixedCounterOut = true
+			}
 		}
 	}
 
@@ -319,10 +331,14 @@ func usdcHistory(walletID string, own, contract Address, transfers []IndexedTran
 			net = new(big.Int).Set(&g.self)
 		case net.Sign() > 0:
 			rec.Direction = domain.DirectionIn
-			rec.Counterparty = g.counterIn.String()
+			if !g.mixedCounterIn {
+				rec.Counterparty = g.counterIn.String()
+			}
 		case net.Sign() < 0:
 			rec.Direction = domain.DirectionOut
-			rec.Counterparty = g.counterOut.String()
+			if !g.mixedCounterOut {
+				rec.Counterparty = g.counterOut.String()
+			}
 			net.Neg(net)
 		default:
 			rec.Direction = domain.DirectionSelf // вошло и вышло поровну

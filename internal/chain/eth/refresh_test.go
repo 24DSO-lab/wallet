@@ -269,6 +269,47 @@ func TestUSDCHistoryAggregatesPerHash(t *testing.T) {
 	}
 }
 
+func TestUSDCHistoryOmitsAmbiguousCounterparty(t *testing.T) {
+	own, other := mustAddr2(addrA), mustAddr2(addrB)
+	third := mustAddr2(USDCSepoliaContract)
+	contract := mustAddr2(USDCSepoliaContract)
+	tests := []struct {
+		name string
+		transfers []IndexedTransfer
+		direction domain.Direction
+		amount string
+	}{
+		{
+			name: "multiple incoming counterparties",
+			transfers: []IndexedTransfer{
+				transfer(hash1, other, own, 8, 1700000000),
+				transfer(hash1, third, own, 7, 1700000000),
+			},
+			direction: domain.DirectionIn, amount: "15",
+		},
+		{
+			name: "multiple outgoing counterparties",
+			transfers: []IndexedTransfer{
+				transfer(hash1, own, other, 8, 1700000000),
+				transfer(hash1, own, third, 7, 1700000000),
+			},
+			direction: domain.DirectionOut, amount: "15",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normal := []IndexedTx{{Hash: hash1, From: own, GasUsed: 21_000, GasPrice: big.NewInt(2_000_000_000)}}
+			h, err := usdcHistory("w1", own, contract, tt.transfers, normal)
+			if err != nil || len(h) != 1 {
+				t.Fatalf("history = %+v, err=%v", h, err)
+			}
+			if h[0].Direction != tt.direction || h[0].Amount.String() != tt.amount || h[0].Counterparty != "" {
+				t.Errorf("ambiguous transfer = %+v", h[0])
+			}
+		})
+	}
+}
+
 func TestUSDCHistoryRejectsOutgoingTransferWithoutFeeMetadata(t *testing.T) {
 	own, other := mustAddr2(addrA), mustAddr2(addrB)
 	contract := mustAddr2(USDCSepoliaContract)
