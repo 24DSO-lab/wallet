@@ -292,6 +292,8 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 		}
 
 		results := make([]addressResult, len(batch))
+		batchUsed := make([]derivedAddress, 0, len(batch))
+		gapReached := false
 		var wg sync.WaitGroup
 		for i := range batch {
 			wg.Add(1)
@@ -326,19 +328,56 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 			}
 
 			if used {
-				type utxoResult struct {
+				batchUsed = append(batchUsed, item)
+			}
+			if used {
+				gap = 0
+			} else {
+				gap++
+				if gap >= s.gap {
+					gapReached = true
+					break
+				}
+			}
+		}
+
+		// Address statistics are consumed in derivation order. Once the batch is
+		// validated, fetch details for all used addresses concurrently, with a
+		// bounded worker window so public Esplora endpoints are not flooded.
+		var detailWG sync.WaitGroup
+		var detailMu sync.Mutex
+		var detailErr error
+		detailSem := make(chan struct{}, maxConcurrentAddressLookups)
+		for _, item := range batchUsed {
+			item := item
+			detailWG.Add(1)
+			go func() {
+				defer detailWG.Done()
+				select {
+				case detailSem <- struct{}{}:
+				case <-ctx.Done():
+					detailMu.Lock()
+					if detailErr == nil {
+						detailErr = ctx.Err()
+					}
+					detailMu.Unlock()
+					return
+				}
+				defer func() { <-detailSem }()
+
+				type utxoLookup struct {
 					items []EsploraUTXO
-					err   error
+					err error
 				}
-				type txResult struct {
+				type historyLookup struct {
 					items []EsploraTx
-					err   error
+					err error
 				}
-				utxoCh := make(chan utxoResult, 1)
-				txCh := make(chan txResult, 1)
+				utxoCh := make(chan utxoLookup, 1)
+				historyCh := make(chan historyLookup, 1)
 				go func() {
 					items, err := s.api.GetUTXOs(ctx, item.address)
-					utxoCh <- utxoResult{items: items, err: err}
+					utxoCh <- utxoLookup{items: items, err: err}
 				}()
 				go func() {
 					items := make([]EsploraTx, 0)
@@ -346,7 +385,7 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 					for {
 						page, err := s.api.GetTransactions(ctx, item.address, cursor)
 						if err != nil {
-							txCh <- txResult{err: err}
+							historyCh <- historyLookup{err: err}
 							return
 						}
 						items = append(items, page...)
@@ -355,20 +394,34 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 						}
 						cursor = page[len(page)-1].TxID
 					}
-					txCh <- txResult{items: items}
+					historyCh <- historyLookup{items: items}
 				}()
-				utxosResult, txsResult := <-utxoCh, <-txCh
-				if utxosResult.err != nil {
-					return nil, nil, nil, nil, nil, fmt.Errorf("btc: UTXO lookup chain=%s index=%d: %w", chain, item.index, utxosResult.err)
+				utxoResult, historyResult := <-utxoCh, <-historyCh
+				utxoItems, txItems := utxoResult.items, historyResult.items
+				err := utxoResult.err
+				if err == nil {
+					err = historyResult.err
 				}
-				if txsResult.err != nil {
-					return nil, nil, nil, nil, nil, fmt.Errorf("btc: transaction history lookup chain=%s index=%d: %w", chain, item.index, txsResult.err)
+				if err != nil {
+					detailMu.Lock()
+					if detailErr == nil {
+						detailErr = fmt.Errorf("btc: address details chain=%s index=%d: %w", chain, item.index, err)
+					}
+					detailMu.Unlock()
+					return
 				}
-				for _, u := range utxosResult.items {
+
+				converted := make([]domain.UTXO, 0, len(utxoItems))
+				for _, u := range utxoItems {
 					confirmations := uint32(0)
 					if u.Status.Confirmed {
 						if u.Status.BlockHeight == 0 || u.Status.BlockHeight > tip {
-							return nil, nil, nil, nil, nil, ErrMalformedResponse
+							detailMu.Lock()
+							if detailErr == nil {
+								detailErr = ErrMalformedResponse
+							}
+							detailMu.Unlock()
+							return
 						}
 						depth := tip - u.Status.BlockHeight + 1
 						if depth > uint64(^uint32(0)) {
@@ -377,28 +430,29 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 							confirmations = uint32(depth)
 						}
 					}
-					utxos = append(utxos, domain.UTXO{
+					converted = append(converted, domain.UTXO{
 						WalletID: wallet.ID, TxID: domain.TxID(u.TxID), Vout: u.Vout,
 						Address: item.address, Amount: domain.AmountFromUint64(u.Value),
 						Confirmations: confirmations, Spent: false,
 					})
 				}
-				for _, tx := range txsResult.items {
+				detailMu.Lock()
+				utxos = append(utxos, converted...)
+				for _, tx := range txItems {
 					if _, exists := seenTx[tx.TxID]; !exists {
 						seenTx[tx.TxID] = struct{}{}
 						txs = append(txs, tx)
 					}
 				}
-			}
-
-			if used {
-				gap = 0
-			} else {
-				gap++
-				if gap >= s.gap {
-					return addresses, confirmed, pending, utxos, txs, nil
-				}
-			}
+				detailMu.Unlock()
+			}()
+		}
+		detailWG.Wait()
+		if detailErr != nil {
+			return nil, nil, nil, nil, nil, detailErr
+		}
+		if gapReached {
+			return addresses, confirmed, pending, utxos, txs, nil
 		}
 		first += batchSize
 	}

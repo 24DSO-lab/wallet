@@ -3,9 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/service"
 )
 
@@ -119,6 +122,35 @@ func TestTransactionExplorerURLRejectsMissingTransactionID(t *testing.T) {
 }
 
 
+func TestServiceAndProfileSnapshotsAreSynchronized(t *testing.T) {
+	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
+	services := []*service.Service{{}, {}}
+	profiles := []domain.Profile{domain.ProfileTest, domain.ProfileMain}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			a.mu.Lock()
+			a.svc = services[i%len(services)]
+			a.profile = profiles[i%len(profiles)]
+			a.mu.Unlock()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			if a.currentService() == nil {
+				t.Error("service snapshot unexpectedly nil")
+				return
+			}
+			_ = a.activeProfile()
+		}
+	}()
+	wg.Wait()
+}
+
 func TestValidatePasswordMinimumLength(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -137,5 +169,97 @@ func TestValidatePasswordMinimumLength(t *testing.T) {
 				t.Fatalf("validatePassword() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+
+func TestPendingWalletConfirmationIsSingleFlight(t *testing.T) {
+	a := &App{
+		pendingMnemonic: secret.FromString("test mnemonic"),
+		pendingWalletName: "wallet",
+		pendingChallengePositions: []int{1, 4, 8},
+		pendingWalletExpires: time.Now().Add(time.Minute),
+	}
+	pending, positions, err := a.beginPendingWalletConfirmation("wallet")
+	if err != nil {
+		t.Fatalf("first confirmation claim: %v", err)
+	}
+	defer pending.Wipe()
+	if len(positions) != 3 || positions[0] != 1 || positions[1] != 4 || positions[2] != 8 {
+		t.Fatalf("challenge positions = %v", positions)
+	}
+	if _, _, err := a.beginPendingWalletConfirmation("wallet"); err == nil {
+		t.Fatal("concurrent confirmation unexpectedly claimed the same mnemonic")
+	}
+	a.finishPendingWalletConfirmation(false)
+	if _, _, err := a.beginPendingWalletConfirmation("wallet"); err != nil {
+		t.Fatalf("confirmation could not retry after a failed attempt: %v", err)
+	}
+	a.finishPendingWalletConfirmation(true)
+	if !a.pendingMnemonic.IsEmpty() || a.pendingWalletInFlight {
+		t.Fatal("successful confirmation did not wipe and release the pending mnemonic")
+	}
+	if _, _, err := a.beginPendingWalletConfirmation("wallet"); err == nil {
+		t.Fatal("successful confirmation left the mnemonic reusable")
+	}
+}
+
+func TestCancelCreateWalletDoesNotRaceAnInFlightConfirmation(t *testing.T) {
+	a := &App{
+		pendingMnemonic: secret.FromString("test mnemonic"),
+		pendingWalletName: "wallet",
+		pendingChallengePositions: []int{0, 2, 5},
+		pendingWalletExpires: time.Now().Add(time.Minute),
+	}
+	pending, _, err := a.beginPendingWalletConfirmation("wallet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pending.Wipe()
+	a.CancelCreateWallet()
+	if a.pendingMnemonic.IsEmpty() {
+		t.Fatal("cancel wiped the mnemonic while wallet persistence was in flight")
+	}
+	a.finishPendingWalletConfirmation(false)
+	if !a.pendingMnemonic.IsEmpty() {
+		t.Fatal("cancelled in-flight confirmation retained its mnemonic after completion")
+	}
+	if a.pendingWalletInFlight {
+		t.Fatal("cancelled in-flight confirmation did not release its claim")
+	}
+}
+
+
+func TestLockKeepsWalletConfirmationClaimUntilOperationFinishes(t *testing.T) {
+	a := &App{
+		pendingMnemonic: secret.FromString("test mnemonic"),
+		pendingWalletName: "wallet",
+		pendingChallengePositions: []int{1, 3, 7},
+		pendingWalletExpires: time.Now().Add(time.Minute),
+	}
+	pending, _, err := a.beginPendingWalletConfirmation("wallet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pending.Wipe()
+	a.Lock()
+	if !a.pendingMnemonic.IsEmpty() {
+		t.Fatal("Lock did not wipe the pending mnemonic")
+	}
+	if !a.pendingWalletInFlight {
+		t.Fatal("Lock released the in-flight claim before persistence finished")
+	}
+	if _, _, err := a.beginPendingWalletConfirmation("wallet"); err == nil {
+		t.Fatal("an expired confirmation unexpectedly claimed while prior persistence was in flight")
+	}
+	if !a.pendingWalletInFlight {
+		t.Fatal("expired confirmation released another operation's claim")
+	}
+	a.finishPendingWalletConfirmation(false)
+	if a.pendingWalletInFlight {
+		t.Fatal("completed operation did not release its claim")
+	}
+	if !a.pendingMnemonic.IsEmpty() {
+		t.Fatal("lock did not preserve the wipe after the in-flight operation completed")
 	}
 }
