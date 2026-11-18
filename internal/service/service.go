@@ -666,7 +666,7 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 // PrepareSend creates and verifies an unsigned draft. It never asks for a
 // password and never has access to private keys.
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
-	unlockData, lockErr := s.lockDataRead()
+	unlockData, lockErr := s.lockDataWrite()
 	if lockErr != nil {
 		return ports.Prepared{}, lockErr
 	}
@@ -684,7 +684,7 @@ func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (po
 	intent.Wallet = wallet.PublicWallet
 	info, _ := intent.Asset.Info()
 	// Resolve previously ambiguous sends before deciding whether a new send is safe.
-	_, _ = s.ReconcilePending(ctx)
+	_, _ = s.reconcilePendingLocked(ctx)
 	if err := s.rejectPendingBroadcast(ctx, wallet.ID, info.Network); err != nil {
 		return ports.Prepared{}, err
 	}
@@ -830,7 +830,10 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 		return 0, lockErr
 	}
 	defer unlockData()
+	return s.reconcilePendingLocked(ctx)
+}
 
+func (s *Service) reconcilePendingLocked(ctx context.Context) (int, error) {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)

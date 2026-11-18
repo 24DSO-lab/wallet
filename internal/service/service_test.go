@@ -544,6 +544,7 @@ func newSnapshotLockTestService(t *testing.T, dataMu *sync.RWMutex) (*service.Se
 	}
 	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
 		Network: domain.NetworkBitcoin, Snapshot: ports.Snapshot{Asset: domain.BTC},
+		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
 	})
 	ks := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
 		Password: []byte("correct horse battery staple"),
@@ -623,5 +624,30 @@ func TestRetiredServiceRejectsOperationWaitingForRestore(t *testing.T) {
 	}
 	if !oldPassword.IsEmpty() || !newPassword.IsEmpty() {
 		t.Fatal("password buffers were not wiped when the service was retired")
+	}
+}
+
+
+func TestPrepareSendDoesNotDeadlockWithSharedDataLock(t *testing.T) {
+	var dataMu sync.RWMutex
+	svc, wallet := newSnapshotLockTestService(t, &dataMu)
+	intent := domain.SendIntent{
+		Wallet: wallet.PublicWallet,
+		Asset: domain.BTC,
+		To: "bc1qrecipient",
+		Amount: domain.AmountFromUint64(1000),
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.PrepareSend(context.Background(), intent)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("PrepareSend with shared data lock: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("PrepareSend deadlocked while reconciling pending transactions under shared data lock")
 	}
 }
