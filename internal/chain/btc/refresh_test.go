@@ -267,6 +267,66 @@ func TestScannerRefreshRejectsMissingXpubAndWrongAsset(t *testing.T) {
 }
 
 
+type concurrentDetailProvider struct {
+	*refreshProvider
+	mu sync.Mutex
+	active int
+	max int
+}
+
+func (p *concurrentDetailProvider) Do(ctx context.Context, req provider.Request) (*provider.Response, error) {
+	if strings.HasSuffix(req.Path, "/utxo") || strings.HasSuffix(req.Path, "/txs") {
+		p.mu.Lock()
+		p.active++
+		if p.active > p.max {
+			p.max = p.active
+		}
+		p.mu.Unlock()
+		time.Sleep(15 * time.Millisecond)
+		defer func() {
+			p.mu.Lock()
+			p.active--
+			p.mu.Unlock()
+		}()
+	}
+	return p.refreshProvider.Do(ctx, req)
+}
+
+func TestScannerRefreshFetchesUsedAddressDetailsConcurrently(t *testing.T) {
+	used := make(map[string]bool)
+	for _, chain := range []domain.AddressChain{domain.ChainReceive, domain.ChainChange} {
+		for index := byte(0); index < 4; index++ {
+			program := make([]byte, 20)
+			program[0] = index
+			if chain == domain.ChainChange {
+				program[1] = 1
+			}
+			used[testWitnessAddress("tb", program)] = true
+		}
+	}
+	p := &concurrentDetailProvider{refreshProvider: &refreshProvider{used: used}}
+	api, err := NewEsplora(p, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.Refresh(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}, domain.BTC); err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	max := p.max
+	p.mu.Unlock()
+	if max < 2 {
+		t.Fatalf("used-address detail requests were not concurrent: max concurrency = %d", max)
+	}
+	if max > 4*maxConcurrentAddressLookups {
+		t.Fatalf("detail request concurrency = %d, want <= %d", max, 4*maxConcurrentAddressLookups)
+	}
+}
+
 func TestTransactionForWalletRejectsConfirmedWithoutBlockMetadata(t *testing.T) {
 	for _, status := range []EsploraTxStatus{
 		{Confirmed: true, BlockTime: 1_700_000_000},
