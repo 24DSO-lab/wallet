@@ -316,7 +316,11 @@ func (e *SpendEngine) Finalize(p ports.Prepared, sigs []ports.Signature) (ports.
 		child,err:=branch.Derive(path[4]);if err!=nil{return ports.Signed{},err}
 		expected:=child.Compressed()
 		if !bytes.Equal(expected[:],sig.PubKey){return ports.Signed{},ErrInvalidSignature}
-		point,err:=secp256k1.ParsePoint(sig.PubKey);if err!=nil||!secp256k1.Verify(point,reqs[i].Digest[:],sig.Sig[:32],sig.Sig[32:64]){return ports.Signed{},ErrInvalidSignature}
+		point,err:=secp256k1.ParsePoint(sig.PubKey)
+		if err!=nil || !secp256k1.IsLowS(sig.Sig[32:64]) ||
+			!secp256k1.Verify(point,reqs[i].Digest[:],sig.Sig[:32],sig.Sig[32:64]) {
+			return ports.Signed{},ErrInvalidSignature
+		}
 		der:=encodeDERSignature(sig.Sig[:32],sig.Sig[32:64])
 		der=append(der,btcSighashAll)
 		witnesses[i]=[][]byte{der,append([]byte(nil),sig.PubKey...)}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -100,8 +102,21 @@ func TestFinalizeAssemblesAndVerifiesP2WPKHWitness(t *testing.T) {
 	copy(signed.Sig[:32],sig.R[:]);copy(signed.Sig[32:64],sig.S[:]);signed.Sig[64]=sig.RecID;signed.PubKey=pub[:]
 	draftBytes,err:=jsonMarshalDraft(d);if err!=nil{t.Fatal(err)}
 	engine:=&SpendEngine{derive:HDAddressDeriver{},profile:domain.ProfileTest}
-	result,err:=engine.Finalize(ports.Prepared{Network:domain.NetworkBitcoin,Asset:domain.BTC,Draft:draftBytes},[]ports.Signature{signed})
+	prepared := ports.Prepared{Network:domain.NetworkBitcoin,Asset:domain.BTC,Draft:draftBytes}
+	result,err:=engine.Finalize(prepared,[]ports.Signature{signed})
 	if err!=nil{t.Fatalf("Finalize: %v",err)}
+
+	// A mathematically valid high-S counterpart must be rejected: Bitcoin
+	// standard policy requires low-S signatures before a transaction is relayed.
+	order, ok := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+	if !ok { t.Fatal("invalid secp256k1 order constant") }
+	high := new(big.Int).Sub(order, new(big.Int).SetBytes(signed.Sig[32:64]))
+	highSig := signed
+	high.FillBytes(highSig.Sig[32:64])
+	highSig.Sig[64] ^= 1
+	if _, err := engine.Finalize(prepared, []ports.Signature{highSig}); !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("high-S signature accepted, err = %v", err)
+	}
 	stripped,err:=stripWitness(result.Raw);if err!=nil{t.Fatal(err)}
 	if !bytes.Equal(stripped,raw){t.Fatal("stripping witness did not recover unsigned transaction")}
 	if !validTxID(string(result.TxID)){t.Fatalf("invalid txid %q",result.TxID)}
