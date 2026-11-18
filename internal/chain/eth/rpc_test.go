@@ -199,25 +199,28 @@ func TestBlockNumberRejectsValueAbove64Bits(t *testing.T) {
 }
 
 func TestTransactionReceipt(t *testing.T) {
+	const hash = "0x1111111111111111111111111111111111111111111111111111111111111111"
 	c, _ := newTestRPC(t,
 		ok(`null`),
-		ok(`{"status":"0x1","blockNumber":"0x10","gasUsed":"0x5208"}`),
-		ok(`{"status":"0x0","blockNumber":"0x11"}`),
-		ok(`{"blockNumber":"0x11"}`),
-		ok(`{"status":"0x2","blockNumber":"0x11"}`),
+		ok(`{"transactionHash":"`+hash+`","status":"0x1","blockNumber":"0x10","gasUsed":"0x5208"}`),
+		ok(`{"transactionHash":"`+hash+`","status":"0x0","blockNumber":"0x11"}`),
+		ok(`{"transactionHash":"`+hash+`","blockNumber":"0x11"}`),
+		ok(`{"transactionHash":"`+hash+`","status":"0x2","blockNumber":"0x11"}`),
+		ok(`{"status":"0x1","blockNumber":"0x11"}`),
+		ok(`{"transactionHash":"0x2222222222222222222222222222222222222222222222222222222222222222","status":"0x1","blockNumber":"0x11"}`),
 	)
 	ctx := context.Background()
-	if r, err := c.TransactionReceipt(ctx, "0xabc"); r != nil || err != nil {
+	if r, err := c.TransactionReceipt(ctx, hash); r != nil || err != nil {
 		t.Fatalf("pending: %v %v", r, err)
 	}
-	if r, err := c.TransactionReceipt(ctx, "0xabc"); err != nil || r.Status != 1 || r.BlockNumber != 16 {
+	if r, err := c.TransactionReceipt(ctx, hash); err != nil || r.Status != 1 || r.BlockNumber != 16 {
 		t.Fatalf("success: %+v %v", r, err)
 	}
-	if r, err := c.TransactionReceipt(ctx, "0xabc"); err != nil || r.Status != 0 || r.BlockNumber != 17 {
+	if r, err := c.TransactionReceipt(ctx, hash); err != nil || r.Status != 0 || r.BlockNumber != 17 {
 		t.Fatalf("reverted: %+v %v", r, err)
 	}
-	for _, name := range []string{"missing status", "status 2"} {
-		if _, err := c.TransactionReceipt(ctx, "0xabc"); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+	for _, name := range []string{"missing status", "status 2", "missing transaction hash", "foreign transaction hash"} {
+		if _, err := c.TransactionReceipt(ctx, hash); domain.CodeOf(err) != domain.CodeProviderBadResponse {
 			t.Errorf("%s: %v", name, err)
 		}
 	}

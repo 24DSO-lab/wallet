@@ -361,11 +361,15 @@ func (c *JSONRPC) TransactionReceipt(ctx context.Context, hash string) (*Receipt
 		return nil, nil
 	}
 	var r struct {
-		Status      string `json:"status"`
-		BlockNumber string `json:"blockNumber"`
+		TransactionHash string `json:"transactionHash"`
+		Status          string `json:"status"`
+		BlockNumber     string `json:"blockNumber"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, badResponse(errors.New("eth: malformed receipt"))
+	}
+	if _, err := parseTxHash(r.TransactionHash); err != nil || !strings.EqualFold(r.TransactionHash, hash) {
+		return nil, badResponse(errors.New("eth: receipt transaction hash does not match request"))
 	}
 	status, err := parseUint64Quantity(r.Status)
 	if err != nil || status > 1 {
