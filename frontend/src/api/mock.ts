@@ -1,4 +1,4 @@
-import type { Api, Asset, WalletAsset, Profile, Wallet, Tx, Quote, Balance } from './types'
+import type { Api, Asset, WalletAsset, Profile, Wallet, Tx, Quote, Balance, AssetCatalogEntry } from './types'
 
 const wait = (ms = 150) => new Promise<void>(resolve => setTimeout(resolve, ms))
 const stamp = () => new Date().toISOString()
@@ -36,7 +36,13 @@ export function mockApi(): Api {
     if (locked) throw Error('SESSION_LOCKED')
   }
 
+  const catalog = (profile: Profile): AssetCatalogEntry[] => {
+    const btc=profile==='test'?'https://mempool.space/testnet4':'https://mempool.space',eth=profile==='test'?'https://sepolia.etherscan.io':'https://etherscan.io',tron=profile==='test'?'https://nile.tronscan.org':'https://tronscan.org'
+    const usdc=profile==='test'?'0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238':'0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',usdt=profile==='test'?'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf':'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+    return [{asset:'BTC',network:'bitcoin',networkName:profile==='test'?'Bitcoin testnet4':'Bitcoin',kind:'native',explorerUrl:btc},{asset:'ETH',network:'ethereum',networkName:profile==='test'?'Ethereum Sepolia':'Ethereum',kind:'native',explorerUrl:eth},{asset:'USDC',network:'ethereum',networkName:profile==='test'?'Ethereum Sepolia':'Ethereum',kind:'token',standard:'ERC-20',contractAddress:usdc,explorerUrl:eth,contractExplorerUrl:eth+'/address/'+usdc},{asset:'USDT',network:'tron',networkName:profile==='test'?'TRON Nile':'TRON',kind:'token',standard:'TRC-20',contractAddress:usdt,explorerUrl:tron,contractExplorerUrl:tron+'/#/contract/'+usdt},{asset:'TRX',network:'tron',networkName:profile==='test'?'TRON Nile':'TRON',kind:'native',explorerUrl:tron}]
+  }
   return {
+    async assetCatalog(){await wait();return structuredClone(catalog(net))},
     async providerSettings() { await wait(); guard(); return { etherscanAPIKeyConfigured: etherscanConfigured } },
     async saveEtherscanAPIKey(key) { await wait(); guard(); if (!key.trim()) throw Error('INVALID_INPUT'); etherscanConfigured = true },
     async deleteEtherscanAPIKey() { await wait(); guard(); etherscanConfigured = false },

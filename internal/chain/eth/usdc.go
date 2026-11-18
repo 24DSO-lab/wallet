@@ -37,6 +37,9 @@ const derivationPath = "m/44'/60'/0'/0/0"
 // ErrUSDCContract означает, что константа с адресом контракта испорчена.
 var ErrUSDCContract = errors.New("eth: USDC contract constant is not a valid checksummed address")
 
+// USDCContractAddress returns the profile-specific verified USDC contract.
+func USDCContractAddress(p domain.Profile) (string, error) { params, err := paramsFor(p); if err != nil { return "", err }; return params.usdc.String(), nil }
+
 // networkParams это параметры сети профиля.
 type networkParams struct {
 	profile domain.Profile
