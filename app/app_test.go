@@ -269,11 +269,8 @@ func TestLockWaitsForInFlightTransactionOperation(t *testing.T) {
 	a := New()
 	a.locked = false
 
-	// A send preparation/confirmation holds this read lock for its complete
-	// operation. Lock must not return until that operation has left the
-	// critical section, otherwise signing could continue after the UI reports
-	// that the wallet is locked.
-	a.profileMu.RLock()
+	// Sensitive operations hold this read lock for their complete operation.
+	a.transactionMu.RLock()
 	locked := make(chan struct{})
 	go func() {
 		a.Lock()
@@ -282,17 +279,41 @@ func TestLockWaitsForInFlightTransactionOperation(t *testing.T) {
 
 	select {
 	case <-locked:
-		a.profileMu.RUnlock()
-		t.Fatal("Lock returned while a transaction operation was still in flight")
+		a.transactionMu.RUnlock()
+		t.Fatal("Lock returned while a sensitive operation was still in flight")
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	a.profileMu.RUnlock()
+	a.transactionMu.RUnlock()
 	select {
 	case <-locked:
 	case <-time.After(time.Second):
-		t.Fatal("Lock did not complete after the transaction operation finished")
+		t.Fatal("Lock did not complete after the sensitive operation finished")
 	}
+	if !a.locked {
+		t.Fatal("Lock returned without locking the session")
+	}
+}
+
+func TestLockDoesNotWaitForProfileReadLock(t *testing.T) {
+	a := New()
+	a.locked = false
+
+	// A native directory picker holds profileMu read-locked. It must not
+	// prevent the inactivity timer from locking the wallet session.
+	a.profileMu.RLock()
+	locked := make(chan struct{})
+	go func() {
+		a.Lock()
+		close(locked)
+	}()
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		a.profileMu.RUnlock()
+		t.Fatal("Lock waited for an unrelated profile read operation")
+	}
+	a.profileMu.RUnlock()
 	if !a.locked {
 		t.Fatal("Lock returned without locking the session")
 	}
