@@ -10,7 +10,7 @@ import (
 )
 
 type Lock struct {
-	file *os.File
+	file       *os.File
 	overlapped windows.Overlapped
 }
 

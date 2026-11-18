@@ -43,14 +43,14 @@ type Runtime struct {
 
 	mu       sync.Mutex
 	dataMu   sync.RWMutex
-	baseDir  string
-	secretPath string
+	baseDir               string
+	secretPath            string
 	providerKeyConfigured bool
-	keys     config.APIKeys
-	logger   *slog.Logger
-	processLock *processlock.Lock
-	profiles map[domain.Profile]profileRuntime
-	active   domain.Profile
+	keys                  config.APIKeys
+	logger                *slog.Logger
+	processLock           *processlock.Lock
+	profiles              map[domain.Profile]profileRuntime
+	active                domain.Profile
 }
 
 // New builds the default testnet runtime. Provider credentials are loaded from
