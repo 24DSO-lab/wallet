@@ -563,6 +563,26 @@ func TestRefreshUSDT(t *testing.T) {
 	}
 }
 
+
+func TestRefreshUSDTRejectsConfirmedTransferWithoutTransactionInfo(t *testing.T) {
+	f := newFake()
+	wallet := testWallet(t)
+	f.transfers = []Transfer{{
+		TxID: hex.EncodeToString(bytes32(11)), From: otherAddr, To: wallet.TronAddress,
+		Value: domain.AmountFromUint64(5_000_000), Time: testNow, Confirmed: true,
+	}}
+	snapshot, err := newAdapter(t, f).Refresh(context.Background(), wallet, domain.USDT)
+	if err != nil {
+		t.Fatalf("valid token balance should remain available: %v", err)
+	}
+	if snapshot.HistoryError != string(domain.CodeProviderBadResponse) || len(snapshot.History) != 0 {
+		t.Fatalf("confirmed transfer without transaction info must not be shown as pending: %+v", snapshot)
+	}
+	if snapshot.Balance.Confirmed.String() != "10000000" {
+		t.Fatalf("token balance was lost: %s", snapshot.Balance.Confirmed)
+	}
+}
+
 func TestRefreshUSDTAggregatesMultipleEventsPerTransaction(t *testing.T) {
 	f := newFake()
 	wallet := testWallet(t)

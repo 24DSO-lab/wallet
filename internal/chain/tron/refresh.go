@@ -178,13 +178,16 @@ func (a *Adapter) history(ctx context.Context, walletID string, owner Addr, ts [
 			if err != nil {
 				return nil, err
 			}
-			if info.Found {
-				status := statusOf(info)
-				tx.Status, tx.BlockHeight = status.State, status.BlockHeight
-				if group.sent {
-					tx.FeeAsset = domain.TRX
-					tx.Fee = domain.AmountFromUint64(info.FeeSun)
-				}
+			if !info.Found {
+				// The transfer came from the confirmed-only endpoint. Showing it
+				// as pending would contradict the source's confirmation filter.
+				return nil, bad("confirmed transfer is missing transaction info")
+			}
+			status := statusOf(info)
+			tx.Status, tx.BlockHeight = status.State, status.BlockHeight
+			if group.sent {
+				tx.FeeAsset = domain.TRX
+				tx.Fee = domain.AmountFromUint64(info.FeeSun)
 			}
 		} else if group.confirmed {
 			// Вне лимита запросов: все события транзакции уже подтверждены.
