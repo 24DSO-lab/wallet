@@ -181,6 +181,39 @@ func TestRBFUnknownBroadcastIsReconciledWithoutLosingOriginal(t *testing.T) {
 	}
 }
 
+func TestPrepareRBFRejectsOtherUnresolvedBroadcast(t *testing.T) {
+	svc, st, _, wallet := newRBFTestService(t, true, nil)
+	if err := st.PendingTxs().Put(context.Background(), ports.PendingTx{
+		TxID: "other-unresolved", WalletID: wallet.ID, Asset: domain.BTC,
+		Network: domain.NetworkBitcoin, Raw: []byte("signed"), BroadcastAccepted: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.PrepareRBF(context.Background(), wallet.ID, rbfOriginalTxID); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("PrepareRBF error = %v, want duplicate_send while another broadcast is unresolved", err)
+	}
+}
+
+func TestConfirmRBFRechecksOtherUnresolvedBroadcast(t *testing.T) {
+	svc, st, _, wallet := newRBFTestService(t, true, nil)
+	replacement, err := svc.PrepareRBF(context.Background(), wallet.ID, rbfOriginalTxID)
+	if err != nil {
+		t.Fatalf("PrepareRBF: %v", err)
+	}
+	if err := st.PendingTxs().Put(context.Background(), ports.PendingTx{
+		TxID: "other-unresolved", WalletID: wallet.ID, Asset: domain.BTC,
+		Network: domain.NetworkBitcoin, Raw: []byte("signed"), BroadcastAccepted: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConfirmRBF(context.Background(), wallet.ID, replacement, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
+		t.Fatalf("ConfirmRBF error = %v, want duplicate_send while another broadcast is unresolved", err)
+	}
+	if _, err := st.PendingTxs().Get(context.Background(), rbfReplacementTxID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("replacement was persisted despite unresolved broadcast: %v", err)
+	}
+}
+
 func TestPrepareRBFRejectsUnacceptedOriginal(t *testing.T) {
 	svc, _, _, wallet := newRBFTestService(t, false, nil)
 	if _, err := svc.PrepareRBF(context.Background(), wallet.ID, rbfOriginalTxID); domain.CodeOf(err) != domain.CodeInvalidInput {
