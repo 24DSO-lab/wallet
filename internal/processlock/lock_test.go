@@ -2,6 +2,7 @@ package processlock
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAcquireExcludesSecondProcessLockAndAllowsReacquire(t *testing.T) {
@@ -52,7 +54,9 @@ func TestProcessLockHelper(t *testing.T) {
 
 func TestAcquireExcludesAnotherProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "wallet.lock")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestProcessLockHelper$")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestProcessLockHelper$")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
