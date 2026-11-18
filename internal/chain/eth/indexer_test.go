@@ -128,6 +128,7 @@ func TestIndexerRateLimitAndErrors(t *testing.T) {
 		{"invalid key", `{"status":"0","message":"NOTOK","result":"Invalid API Key"}`, domain.CodeProviderBadResponse},
 		{"html", `<html>`, domain.CodeProviderBadResponse},
 		{"result not list", `{"status":"1","message":"OK","result":"x"}`, domain.CodeProviderBadResponse},
+		{"null result", `{"status":"1","message":"OK","result":null}`, domain.CodeProviderBadResponse},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

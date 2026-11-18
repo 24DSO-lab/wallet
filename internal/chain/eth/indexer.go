@@ -2,6 +2,7 @@ package eth
 
 import (
 	"context"
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -147,8 +148,12 @@ func decodeEnvelope(body []byte) ([]json.RawMessage, error) {
 		return nil, badResponse(errors.New("eth: indexer response is not JSON"))
 	}
 	if env.Status == "1" {
+		trimmed := bytes.TrimSpace(env.Result)
+		if len(trimmed) == 0 || trimmed[0] != '[' {
+			return nil, badResponse(errors.New("eth: indexer result is not a list"))
+		}
 		var rows []json.RawMessage
-		if err := json.Unmarshal(env.Result, &rows); err != nil {
+		if err := json.Unmarshal(trimmed, &rows); err != nil {
 			return nil, badResponse(errors.New("eth: indexer result is not a list"))
 		}
 		return rows, nil
