@@ -87,5 +87,14 @@ func paddedGas(estimate uint64, isUSDC bool) uint64 {
 	if !isUSDC && estimate <= gasTransferETH {
 		return gasTransferETH
 	}
+
+	cap := gasCap(isUSDC)
+	// Reject estimates whose 20% padding would exceed the configured cap.
+	// The bound is checked before multiplication, preventing uint64 overflow
+	// from wrapping a hostile provider estimate into an apparently valid gas limit.
+	maxEstimate := cap * gasPadDen / gasPadNum
+	if estimate > maxEstimate {
+		return cap + 1
+	}
 	return estimate + estimate*(gasPadNum-gasPadDen)/gasPadDen
 }
