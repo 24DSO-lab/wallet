@@ -57,6 +57,7 @@ type App struct {
 	profileMu     sync.RWMutex // serializes profile changes/restores with profile-bound operations
 	transactionMu sync.RWMutex // lets Lock wait for sensitive operations without waiting for UI dialogs
 	mu            sync.Mutex
+	closed        bool
 	ctx           context.Context
 	svc           *service.Service
 	profile       domain.Profile
@@ -130,7 +131,12 @@ func (a *App) activeProfile() domain.Profile {
 }
 
 func (a *App) ready() error {
-	if a.currentService() == nil {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return errors.New("app_shutdown")
+	}
+	if a.svc == nil {
 		return errors.New("app_not_configured")
 	}
 	return nil
@@ -791,6 +797,9 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 func (a *App) SetProfile(profile string) error {
 	a.profileMu.Lock()
 	defer a.profileMu.Unlock()
+	if err := a.ready(); err != nil {
+		return err
+	}
 	p := domain.Profile(profile)
 	if !p.Valid() {
 		return errors.New("invalid_input")
@@ -824,6 +833,10 @@ func (a *App) SetProfile(profile string) error {
 
 // GetProviderSettings exposes configuration state only; the credential never crosses the Wails boundary.
 func (a *App) GetProviderSettings() (ProviderSettingsDTO, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+	a.transactionMu.RLock()
+	defer a.transactionMu.RUnlock()
 	if err := a.ready(); err != nil { return ProviderSettingsDTO{}, err }
 	if err := a.requireUnlocked(); err != nil { return ProviderSettingsDTO{}, err }
 	a.mu.Lock()
@@ -837,6 +850,10 @@ func (a *App) GetProviderSettings() (ProviderSettingsDTO, error) {
 
 // SaveEtherscanAPIKey stores the key in the OS-protected secret store. It is never returned to the frontend.
 func (a *App) SaveEtherscanAPIKey(key string) error {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+	a.transactionMu.RLock()
+	defer a.transactionMu.RUnlock()
 	if err := a.ready(); err != nil { return err }
 	if err := a.requireUnlocked(); err != nil { return err }
 	key = strings.TrimSpace(key)
@@ -854,6 +871,10 @@ func (a *App) SaveEtherscanAPIKey(key string) error {
 
 // DeleteEtherscanAPIKey removes the saved credential from the OS-protected secret store.
 func (a *App) DeleteEtherscanAPIKey() error {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+	a.transactionMu.RLock()
+	defer a.transactionMu.RUnlock()
 	if err := a.ready(); err != nil { return err }
 	if err := a.requireUnlocked(); err != nil { return err }
 	a.mu.Lock()
@@ -1035,4 +1056,15 @@ func validatePassword(password string) error {
 	return nil
 }
 
-func (a *App) Shutdown(context.Context) { a.Lock() }
+func (a *App) Shutdown(context.Context) {
+	// Stop new profile-bound work before Runtime closes its databases. Keep the
+	// same lock order as normal operations and backup restoration.
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+	a.mu.Lock()
+	a.closed = true
+	a.mu.Unlock()
+	a.lockSessionState()
+}

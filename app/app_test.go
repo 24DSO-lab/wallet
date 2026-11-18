@@ -331,3 +331,54 @@ func TestLockSessionStateCanBeUsedWhileProfileWriteLockIsHeld(t *testing.T) {
 		t.Fatal("profile transition did not lock the session")
 	}
 }
+
+
+func TestShutdownWaitsForProfileOperationsAndClosesApp(t *testing.T) {
+	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
+	a.profileMu.RLock()
+	done := make(chan struct{})
+	go func() {
+		a.Shutdown(context.Background())
+		close(done)
+	}()
+	select {
+	case <-done:
+		a.profileMu.RUnlock()
+		t.Fatal("Shutdown returned while a profile operation was still in flight")
+	case <-time.After(25 * time.Millisecond):
+	}
+	a.profileMu.RUnlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not finish after the profile operation completed")
+	}
+	if err := a.ready(); err == nil || err.Error() != "app_shutdown" {
+		t.Fatalf("ready() after shutdown = %v, want app_shutdown", err)
+	}
+	if err := a.SetProfile(string(domain.ProfileTest)); err == nil || err.Error() != "app_shutdown" {
+		t.Fatalf("SetProfile after shutdown = %v, want app_shutdown", err)
+	}
+}
+
+func TestShutdownWaitsForSensitiveOperations(t *testing.T) {
+	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
+	a.transactionMu.RLock()
+	done := make(chan struct{})
+	go func() {
+		a.Shutdown(context.Background())
+		close(done)
+	}()
+	select {
+	case <-done:
+		a.transactionMu.RUnlock()
+		t.Fatal("Shutdown returned while a sensitive operation was still in flight")
+	case <-time.After(25 * time.Millisecond):
+	}
+	a.transactionMu.RUnlock()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not finish after the sensitive operation completed")
+	}
+}
