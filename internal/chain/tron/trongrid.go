@@ -407,12 +407,15 @@ func (g *TronGrid) TxInfo(ctx context.Context, txid string) (TxInfo, error) {
 	if !strings.EqualFold(r.ID, txid) || r.BlockNumber == 0 {
 		return TxInfo{}, bad("transaction info does not match request")
 	}
+	// TRC20 transfers are smart-contract calls and must carry an explicit
+	// successful receipt. Missing execution data is not evidence of success.
+	if r.Receipt.Result == "" && r.Result != "FAILED" {
+		return TxInfo{}, bad("transaction execution result is missing")
+	}
 	tip, err := g.NowBlock(ctx)
 	if err != nil {
 		return TxInfo{}, err
 	}
-	// Успех: нет поля result == FAILED и receipt.result пуст (простой перевод)
-	// или SUCCESS. Всё остальное (REVERT, OUT_OF_ENERGY...) это ошибка.
-	ok := r.Result != "FAILED" && (r.Receipt.Result == "" || r.Receipt.Result == "SUCCESS")
+	ok := r.Result != "FAILED" && r.Receipt.Result == "SUCCESS"
 	return TxInfo{Found: true, BlockNumber: r.BlockNumber, Success: ok, FeeSun: r.Fee, CurrentTip: tip.Number}, nil
 }

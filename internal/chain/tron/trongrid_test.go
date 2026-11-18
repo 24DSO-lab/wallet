@@ -301,6 +301,10 @@ func TestPricesBroadcastTxInfo(t *testing.T) {
 	if info, _ := g2.TxInfo(context.Background(), id); !info.Found || info.Success {
 		t.Errorf("failed tx reported as success: %+v", info)
 	}
+	routes["/wallet/gettransactioninfobyid"] = stubReply{body: `{"id":"` + id + `","blockNumber":40,"fee":9000000}`}
+	if _, err := g2.TxInfo(context.Background(), id); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Errorf("transaction without an execution result must be rejected, got %v", err)
+	}
 	routes["/wallet/gettransactioninfobyid"] = stubReply{body: `{}`}
 	if info, err := g2.TxInfo(context.Background(), id); err != nil || info.Found {
 		t.Errorf("not found: %+v %v", info, err)
