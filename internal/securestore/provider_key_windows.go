@@ -3,10 +3,8 @@
 package securestore
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -89,7 +87,7 @@ func SaveProviderKey(path, key string) error {
 		_ = tmp.Close()
 		return fmt.Errorf("securestore: protect temporary provider key: %w", err)
 	}
-	if _, err := io.Copy(tmp, bytes.NewReader(encrypted)); err != nil {
+	if _, err := tmp.Write(encrypted); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("securestore: write encrypted provider key: %w", err)
 	}
