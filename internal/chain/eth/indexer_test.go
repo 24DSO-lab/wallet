@@ -197,18 +197,39 @@ func TestIndexerPageCap(t *testing.T) {
 }
 
 func TestTokenTransfersParsing(t *testing.T) {
-	row := `{"blockNumber":"101","timeStamp":"1700000100","hash":"` + hash1 + `","from":"` + addrB + `","to":"` + addrA +
+	row := `{"blockNumber":"101","timeStamp":"1700000100","hash":"` + hash1 + `","logIndex":"7","from":"` + addrB + `","to":"` + addrA +
 		`","value":"2500000","contractAddress":"` + USDCSepoliaContract + `","tokenDecimal":"6"}`
 	e, fc := newTestEtherscan(t, envelope(row))
 	tr, err := e.TokenTransfers(context.Background(), mustAddr(t, addrA), mustAddr(t, USDCSepoliaContract))
 	if err != nil || len(tr) != 1 {
 		t.Fatalf("%v %v", tr, err)
 	}
-	if tr[0].Value.Int64() != 2_500_000 || tr[0].Contract != mustAddr(t, USDCSepoliaContract) || tr[0].To != mustAddr(t, addrA) {
+	if tr[0].Value.Int64() != 2_500_000 || tr[0].LogIndex != 7 || tr[0].Contract != mustAddr(t, USDCSepoliaContract) || tr[0].To != mustAddr(t, addrA) {
 		t.Errorf("transfer = %+v", tr[0])
 	}
 	if q := fc.reqs[0].Query; q.Get("action") != "tokentx" || q.Get("contractaddress") != strings.ToLower(USDCSepoliaContract) {
 		t.Errorf("query = %v", q)
+	}
+}
+
+
+func TestTokenTransfersRejectsMissingOrDuplicateLogIndex(t *testing.T) {
+	base := `{"blockNumber":"101","timeStamp":"1700000100","hash":"` + hash1 + `","logIndex":"7","from":"` + addrB +
+		`","to":"` + addrA + `","value":"1","contractAddress":"` + USDCSepoliaContract + `"}`
+	missing := strings.Replace(base, `,"logIndex":"7"`, "", 1)
+	for _, tc := range []struct {
+		name string
+		rows []string
+	}{
+		{name: "missing log index", rows: []string{missing}},
+		{name: "duplicate event", rows: []string{base, base}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := newTestEtherscan(t, envelope(tc.rows...))
+			if _, err := e.TokenTransfers(context.Background(), mustAddr(t, addrA), mustAddr(t, USDCSepoliaContract)); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+				t.Fatalf("expected malformed transfer response, got %v", err)
+			}
+		})
 	}
 }
 

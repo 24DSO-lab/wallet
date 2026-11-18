@@ -46,12 +46,13 @@ type IndexedTx struct {
 
 // IndexedTransfer это событие Transfer токена из индексатора.
 type IndexedTransfer struct {
-	Hash     string
-	Contract Address
-	From, To Address
-	Value    *big.Int
-	Block    uint64
-	Time     time.Time
+	Hash      string
+	LogIndex  uint64
+	Contract  Address
+	From, To  Address
+	Value     *big.Int
+	Block     uint64
+	Time      time.Time
 }
 
 // Etherscan это Indexer поверх Etherscan API V2. Базовый адрес клиента это
@@ -257,6 +258,7 @@ type etherscanTransfer struct {
 	BlockNumber     string `json:"blockNumber"`
 	TimeStamp       string `json:"timeStamp"`
 	Hash            string `json:"hash"`
+	LogIndex        string `json:"logIndex"`
 	From            string `json:"from"`
 	To              string `json:"to"`
 	Value           string `json:"value"`
@@ -270,6 +272,7 @@ func (e *Etherscan) TokenTransfers(ctx context.Context, addr, contract Address) 
 		return nil, err
 	}
 	out := make([]IndexedTransfer, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
 	for _, r := range raw {
 		var row etherscanTransfer
 		if err := json.Unmarshal(r, &row); err != nil {
@@ -279,6 +282,11 @@ func (e *Etherscan) TokenTransfers(ctx context.Context, addr, contract Address) 
 		if err != nil {
 			return nil, badResponse(err)
 		}
+		key := tr.Hash + ":" + strconv.FormatUint(tr.LogIndex, 10)
+		if _, duplicate := seen[key]; duplicate {
+			return nil, badResponse(errors.New("eth: duplicate token transfer log"))
+		}
+		seen[key] = struct{}{}
 		out = append(out, tr)
 	}
 	return out, nil
@@ -290,6 +298,9 @@ func (r etherscanTransfer) decode() (IndexedTransfer, error) {
 		err error
 	)
 	if tr.Hash, err = parseTxHash(r.Hash); err != nil {
+		return tr, err
+	}
+	if tr.LogIndex, err = parseUintDecimal(r.LogIndex); err != nil {
 		return tr, err
 	}
 	if tr.Contract, err = parseRowAddress(r.ContractAddress); err != nil {
