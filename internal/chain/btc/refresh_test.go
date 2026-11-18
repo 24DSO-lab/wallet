@@ -15,6 +15,7 @@ import (
 )
 
 type fakeDeriver struct {
+	mu sync.Mutex
 	addresses map[string]bool
 }
 
@@ -23,8 +24,10 @@ func (d *fakeDeriver) DeriveAddress(_ string, _ domain.Profile, chain domain.Add
 	program[0] = byte(index)
 	if chain == domain.ChainChange { program[1] = 1 }
 	address := testWitnessAddress("tb", program)
+	d.mu.Lock()
 	if d.addresses == nil { d.addresses = make(map[string]bool) }
 	d.addresses[address] = index == 0
+	d.mu.Unlock()
 	return address, fmt.Sprintf("m/84'/1'/0'/%d/%d", chainIndex(chain), index), nil
 }
 
