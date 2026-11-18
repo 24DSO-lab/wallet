@@ -224,12 +224,24 @@ func TestTransactionReceipt(t *testing.T) {
 }
 
 func TestTransactionKnown(t *testing.T) {
-	c, _ := newTestRPC(t, ok(`null`), ok(`{"hash":"0xabc"}`))
-	if known, err := c.TransactionKnown(context.Background(), "0xabc"); known || err != nil {
+	const hash = "0x1111111111111111111111111111111111111111111111111111111111111111"
+	c, _ := newTestRPC(t,
+		ok(`null`),
+		ok(`{"hash":"`+hash+`"}`),
+		ok(`{}`),
+		ok(`{"hash":"0x2222222222222222222222222222222222222222222222222222222222222222"}`),
+		ok(`{"hash":"0xabc"}`),
+	)
+	if known, err := c.TransactionKnown(context.Background(), hash); known || err != nil {
 		t.Errorf("unknown tx: %v %v", known, err)
 	}
-	if known, err := c.TransactionKnown(context.Background(), "0xabc"); !known || err != nil {
+	if known, err := c.TransactionKnown(context.Background(), hash); !known || err != nil {
 		t.Errorf("known tx: %v %v", known, err)
+	}
+	for _, name := range []string{"missing hash", "foreign hash", "malformed hash"} {
+		if known, err := c.TransactionKnown(context.Background(), hash); known || domain.CodeOf(err) != domain.CodeProviderBadResponse {
+			t.Errorf("%s: known=%v err=%v", name, known, err)
+		}
 	}
 }
 

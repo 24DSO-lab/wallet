@@ -384,7 +384,24 @@ func (c *JSONRPC) TransactionKnown(ctx context.Context, hash string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	return string(raw) != "null", nil
+	if string(raw) == "null" {
+		return false, nil
+	}
+	var tx struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(raw, &tx); err != nil {
+		return false, badResponse(errors.New("eth: malformed transaction lookup result"))
+	}
+	want, err := hex.DecodeString(strings.TrimPrefix(hash, "0x"))
+	if err != nil || len(want) != 32 {
+		return false, badResponse(errors.New("eth: invalid transaction hash in lookup"))
+	}
+	got, err := hex.DecodeString(strings.TrimPrefix(tx.Hash, "0x"))
+	if err != nil || len(got) != 32 || !strings.EqualFold(tx.Hash, hash) {
+		return false, badResponse(errors.New("eth: transaction lookup hash does not match request"))
+	}
+	return true, nil
 }
 
 func lowerHex(a Address) string { return "0x" + hex.EncodeToString(a[:]) }
