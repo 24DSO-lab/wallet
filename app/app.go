@@ -797,15 +797,15 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 func (a *App) SetProfile(profile string) error {
 	a.profileMu.Lock()
 	defer a.profileMu.Unlock()
-	if err := a.ready(); err != nil {
-		return err
-	}
 	p := domain.Profile(profile)
 	if !p.Valid() {
 		return errors.New("invalid_input")
 	}
 	if p == domain.ProfileMain && !config.MainnetEnabled {
 		return errors.New(string(domain.CodeMainnetDisabled))
+	}
+	if err := a.ready(); err != nil {
+		return err
 	}
 	a.mu.Lock()
 	current, change := a.profile, a.switchProfile
