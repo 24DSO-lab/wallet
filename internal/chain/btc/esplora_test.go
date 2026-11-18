@@ -89,6 +89,27 @@ func TestEsploraGetUTXOsRejectsMalformedTxID(t *testing.T) {
 	}
 }
 
+func TestEsploraGetUTXOsRejectsIncompleteOrDuplicateEntries(t *testing.T) {
+	txid := strings.Repeat("ab", 32)
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{name: "missing status", body: `[{"txid":"`+txid+`","vout":0,"value":42}]`},
+		{name: "missing confirmed flag", body: `[{"txid":"`+txid+`","vout":0,"value":42,"status":{}}]`},
+		{name: "null confirmed flag", body: `[{"txid":"`+txid+`","vout":0,"value":42,"status":{"confirmed":null}}]`},
+		{name: "confirmed without block metadata", body: `[{"txid":"`+txid+`","vout":0,"value":42,"status":{"confirmed":true}}]`},
+		{name: "duplicate outpoint", body: `[{"txid":"`+txid+`","vout":0,"value":42,"status":{"confirmed":false}},{"txid":"`+txid+`","vout":0,"value":42,"status":{"confirmed":false}}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &recordingProvider{response: provider.Response{Status: http.StatusOK, Body: []byte(tc.body)}}
+			api, _ := NewEsplora(p, domain.ProfileTest)
+			if _, err := api.GetUTXOs(context.Background(), validTestAddress()); !errors.Is(err, ErrMalformedResponse) {
+				t.Fatalf("expected malformed response, got %v", err)
+			}
+		})
+	}
+}
+
 func TestEsploraGetTransactionsPagination(t *testing.T) {
 	p := &recordingProvider{response: provider.Response{Body: []byte("[]")}}
 	api, _ := NewEsplora(p, domain.ProfileTest)

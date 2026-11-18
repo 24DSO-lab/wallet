@@ -140,8 +140,8 @@ func (e *Esplora) GetUTXOs(ctx context.Context, address string) ([]EsploraUTXO, 
 		TxID  string `json:"txid"`
 		Vout  uint32 `json:"vout"`
 		Value uint64 `json:"value"`
-		Status struct {
-			Confirmed   bool   `json:"confirmed"`
+		Status *struct {
+			Confirmed   *bool  `json:"confirmed"`
 			BlockHeight uint64 `json:"block_height"`
 			BlockTime   uint64 `json:"block_time"`
 		} `json:"status"`
@@ -150,13 +150,23 @@ func (e *Esplora) GetUTXOs(ctx context.Context, address string) ([]EsploraUTXO, 
 		return nil, err
 	}
 	out := make([]EsploraUTXO, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
 	for _, u := range raw {
-		if !validTxID(u.TxID) {
+		if !validTxID(u.TxID) || u.Status == nil || u.Status.Confirmed == nil {
+			return nil, ErrMalformedResponse
+		}
+		txid := strings.ToLower(u.TxID)
+		key := fmt.Sprintf("%s:%d", txid, u.Vout)
+		if _, duplicate := seen[key]; duplicate {
+			return nil, ErrMalformedResponse
+		}
+		seen[key] = struct{}{}
+		if *u.Status.Confirmed && (u.Status.BlockHeight == 0 || u.Status.BlockTime == 0) {
 			return nil, ErrMalformedResponse
 		}
 		out = append(out, EsploraUTXO{
-			TxID: u.TxID, Vout: u.Vout, Value: u.Value,
-			Status: TxStatus{Confirmed: u.Status.Confirmed, BlockHeight: u.Status.BlockHeight, BlockTime: u.Status.BlockTime},
+			TxID: txid, Vout: u.Vout, Value: u.Value,
+			Status: TxStatus{Confirmed: *u.Status.Confirmed, BlockHeight: u.Status.BlockHeight, BlockTime: u.Status.BlockTime},
 		})
 	}
 	return out, nil
