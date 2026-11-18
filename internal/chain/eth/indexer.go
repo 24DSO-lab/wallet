@@ -1,8 +1,8 @@
 package eth
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
