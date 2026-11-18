@@ -263,3 +263,50 @@ func TestLockKeepsWalletConfirmationClaimUntilOperationFinishes(t *testing.T) {
 		t.Fatal("lock did not preserve the wipe after the in-flight operation completed")
 	}
 }
+
+
+func TestLockWaitsForInFlightTransactionOperation(t *testing.T) {
+	a := New()
+	a.locked = false
+
+	// A send preparation/confirmation holds this read lock for its complete
+	// operation. Lock must not return until that operation has left the
+	// critical section, otherwise signing could continue after the UI reports
+	// that the wallet is locked.
+	a.profileMu.RLock()
+	locked := make(chan struct{})
+	go func() {
+		a.Lock()
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+		a.profileMu.RUnlock()
+		t.Fatal("Lock returned while a transaction operation was still in flight")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	a.profileMu.RUnlock()
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		t.Fatal("Lock did not complete after the transaction operation finished")
+	}
+	if !a.locked {
+		t.Fatal("Lock returned without locking the session")
+	}
+}
+
+func TestLockSessionStateCanBeUsedWhileProfileWriteLockIsHeld(t *testing.T) {
+	a := New()
+	a.locked = false
+
+	a.profileMu.Lock()
+	a.lockSessionState()
+	a.profileMu.Unlock()
+
+	if !a.locked {
+		t.Fatal("profile transition did not lock the session")
+	}
+}

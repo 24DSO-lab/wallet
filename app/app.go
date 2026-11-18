@@ -214,6 +214,17 @@ func (a *App) Unlock(password string) error {
 // Lock immediately blocks operations requiring an unlocked session and drops
 // all cached unsigned drafts. It does not alter encrypted keystore files.
 func (a *App) Lock() {
+	// Wait for any in-flight send confirmation to finish before declaring the
+	// session locked. In particular, a confirmation that passed requireUnlocked
+	// must not continue signing after Lock has returned.
+	a.profileMu.Lock()
+	defer a.profileMu.Unlock()
+	a.lockSessionState()
+}
+
+// lockSessionState updates session state while the caller owns profileMu when
+// synchronization with transaction preparation/confirmation is required.
+func (a *App) lockSessionState() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.locked = true
@@ -749,7 +760,7 @@ func (a *App) SetProfile(profile string) error {
 	a.svc = newService
 	a.profile = p
 	a.mu.Unlock()
-	a.Lock()
+	a.lockSessionState()
 	return nil
 }
 
@@ -842,7 +853,7 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 
 	a.profileMu.Lock()
 	defer a.profileMu.Unlock()
-	a.Lock()
+	a.lockSessionState()
 	passwordBytes := secret.FromString(password)
 	defer passwordBytes.Wipe()
 	restored, restoreErr := a.restoreBackup(a.context(), path, passwordBytes)
