@@ -16,7 +16,7 @@ import (
 const (
 	AddressGapLimit             = 20
 	MaxAddressScan              = 10000
-	maxConcurrentAddressLookups = 4
+	maxConcurrentAddressLookups = 8
 )
 
 var (
@@ -73,19 +73,44 @@ func (s *Scanner) Refresh(ctx context.Context, wallet domain.PublicWallet, asset
 	confirmedBalance := new(big.Int)
 	pendingBalance := new(big.Int)
 
-	for _, chain := range []domain.AddressChain{domain.ChainReceive, domain.ChainChange} {
-		addresses, chainConfirmed, chainPending, utxos, txs, err := s.scanChain(ctx, wallet, chain, tip)
-		if err != nil {
-			return ports.Snapshot{}, err
+	type chainResult struct {
+		addresses []domain.Address
+		confirmed *big.Int
+		pending   *big.Int
+		utxos     []domain.UTXO
+		txs       []EsploraTx
+		err       error
+	}
+	chains := []domain.AddressChain{domain.ChainReceive, domain.ChainChange}
+	chainResults := make([]chainResult, len(chains))
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var scanWG sync.WaitGroup
+	for i, chain := range chains {
+		scanWG.Add(1)
+		go func(i int, chain domain.AddressChain) {
+			defer scanWG.Done()
+			chainResults[i].addresses, chainResults[i].confirmed, chainResults[i].pending,
+				chainResults[i].utxos, chainResults[i].txs, chainResults[i].err =
+				s.scanChain(scanCtx, wallet, chain, tip)
+			if chainResults[i].err != nil {
+				cancel()
+			}
+		}(i, chain)
+	}
+	scanWG.Wait()
+	for _, scanned := range chainResults {
+		if scanned.err != nil {
+			return ports.Snapshot{}, scanned.err
 		}
-		result.Addresses = append(result.Addresses, addresses...)
-		confirmedBalance.Add(confirmedBalance, chainConfirmed)
-		pendingBalance.Add(pendingBalance, chainPending)
-		result.UTXOs = append(result.UTXOs, utxos...)
-		for _, address := range addresses {
+		result.Addresses = append(result.Addresses, scanned.addresses...)
+		confirmedBalance.Add(confirmedBalance, scanned.confirmed)
+		pendingBalance.Add(pendingBalance, scanned.pending)
+		result.UTXOs = append(result.UTXOs, scanned.utxos...)
+		for _, address := range scanned.addresses {
 			addressSet[address.Address] = struct{}{}
 		}
-		for _, tx := range txs {
+		for _, tx := range scanned.txs {
 			txByID[tx.TxID] = tx
 		}
 	}
@@ -301,11 +326,45 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 			}
 
 			if used {
-				addressUTXOs, err := s.api.GetUTXOs(ctx, item.address)
-				if err != nil {
-					return nil, nil, nil, nil, nil, fmt.Errorf("btc: UTXO lookup chain=%s index=%d: %w", chain, item.index, err)
+				type utxoResult struct {
+					items []EsploraUTXO
+					err   error
 				}
-				for _, u := range addressUTXOs {
+				type txResult struct {
+					items []EsploraTx
+					err   error
+				}
+				utxoCh := make(chan utxoResult, 1)
+				txCh := make(chan txResult, 1)
+				go func() {
+					items, err := s.api.GetUTXOs(ctx, item.address)
+					utxoCh <- utxoResult{items: items, err: err}
+				}()
+				go func() {
+					items := make([]EsploraTx, 0)
+					cursor := ""
+					for {
+						page, err := s.api.GetTransactions(ctx, item.address, cursor)
+						if err != nil {
+							txCh <- txResult{err: err}
+							return
+						}
+						items = append(items, page...)
+						if len(page) < 25 {
+							break
+						}
+						cursor = page[len(page)-1].TxID
+					}
+					txCh <- txResult{items: items}
+				}()
+				utxosResult, txsResult := <-utxoCh, <-txCh
+				if utxosResult.err != nil {
+					return nil, nil, nil, nil, nil, fmt.Errorf("btc: UTXO lookup chain=%s index=%d: %w", chain, item.index, utxosResult.err)
+				}
+				if txsResult.err != nil {
+					return nil, nil, nil, nil, nil, fmt.Errorf("btc: transaction history lookup chain=%s index=%d: %w", chain, item.index, txsResult.err)
+				}
+				for _, u := range utxosResult.items {
 					confirmations := uint32(0)
 					if u.Status.Confirmed {
 						if u.Status.BlockHeight == 0 || u.Status.BlockHeight > tip {
@@ -324,23 +383,11 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 						Confirmations: confirmations, Spent: false,
 					})
 				}
-
-				pageCursor := ""
-				for {
-					page, err := s.api.GetTransactions(ctx, item.address, pageCursor)
-					if err != nil {
-						return nil, nil, nil, nil, nil, fmt.Errorf("btc: transaction history lookup chain=%s index=%d: %w", chain, item.index, err)
+				for _, tx := range txsResult.items {
+					if _, exists := seenTx[tx.TxID]; !exists {
+						seenTx[tx.TxID] = struct{}{}
+						txs = append(txs, tx)
 					}
-					for _, tx := range page {
-						if _, exists := seenTx[tx.TxID]; !exists {
-							seenTx[tx.TxID] = struct{}{}
-							txs = append(txs, tx)
-						}
-					}
-					if len(page) < 25 {
-						break
-					}
-					pageCursor = page[len(page)-1].TxID
 				}
 			}
 
