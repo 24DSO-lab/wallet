@@ -865,6 +865,10 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 }
 
 func (a *App) CreateBackup(password string) (bool, error) {
+	// Keep password verification and backup creation bound to the same profile,
+	// even while the native directory picker is open.
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
 	if err := a.ready(); err != nil {
 		return false, err
 	}
