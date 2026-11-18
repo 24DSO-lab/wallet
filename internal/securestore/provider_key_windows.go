@@ -3,8 +3,10 @@
 package securestore
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -77,12 +79,28 @@ func SaveProviderKey(path, key string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("securestore: create secret directory: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, encrypted, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".provider-key-*")
+	if err != nil {
+		return fmt.Errorf("securestore: create temporary provider key: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("securestore: protect temporary provider key: %w", err)
+	}
+	if _, err := io.Copy(tmp, bytes.NewReader(encrypted)); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("securestore: write encrypted provider key: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("securestore: sync encrypted provider key: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("securestore: close encrypted provider key: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("securestore: replace encrypted provider key: %w", err)
 	}
 	return nil
