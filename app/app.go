@@ -935,8 +935,11 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return false, err
 	}
-	a.transactionMu.Lock()
-	defer a.transactionMu.Unlock()
+	unlockTransaction, err := a.lockForRestore()
+	if err != nil {
+		return false, err
+	}
+	defer unlockTransaction()
 	a.lockSessionState()
 	passwordBytes := secret.FromString(password)
 	defer passwordBytes.Wipe()
@@ -957,6 +960,24 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 	a.mu.Unlock()
 	a.touch()
 	return true, nil
+}
+
+
+// lockForRestore acquires the transaction lock and revalidates session state.
+// The caller must already hold profileMu exclusively. Lock may run while the
+// native file picker is open, so the pre-picker check is not sufficient.
+func (a *App) lockForRestore() (func(), error) {
+	a.transactionMu.Lock()
+	unlock := a.transactionMu.Unlock
+	if err := a.ready(); err != nil {
+		unlock()
+		return nil, err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }
 
 func (a *App) CreateBackup(password string) (bool, error) {
