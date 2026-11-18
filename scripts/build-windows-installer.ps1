@@ -14,11 +14,13 @@ try {
         throw "Wails Windows installer build failed with exit code $LASTEXITCODE."
     }
 
-    $installer = Join-Path $repoRoot "build/bin/wallet-amd64-installer.exe"
-    if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-        throw "Wails did not produce the expected NSIS installer: $installer"
+    $binDir = Join-Path $repoRoot "build/bin"
+    $installers = @(Get-ChildItem -LiteralPath $binDir -Filter "*installer*.exe" -File)
+    if ($installers.Count -ne 1) {
+        throw "Expected exactly one NSIS installer in '$binDir', found $($installers.Count)."
     }
 
+    $installer = $installers[0].FullName
     $hash = Get-FileHash -LiteralPath $installer -Algorithm SHA256
     Write-Host "Installer: $installer"
     Write-Host "SHA256: $($hash.Hash)"
