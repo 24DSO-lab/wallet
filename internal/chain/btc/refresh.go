@@ -72,6 +72,7 @@ func (s *Scanner) Refresh(ctx context.Context, wallet domain.PublicWallet, asset
 	txByID := make(map[string]EsploraTx)
 	confirmedBalance := new(big.Int)
 	pendingBalance := new(big.Int)
+	seenUTXOs := make(map[string]struct{})
 
 	type chainResult struct {
 		addresses []domain.Address
@@ -106,7 +107,14 @@ func (s *Scanner) Refresh(ctx context.Context, wallet domain.PublicWallet, asset
 		result.Addresses = append(result.Addresses, scanned.addresses...)
 		confirmedBalance.Add(confirmedBalance, scanned.confirmed)
 		pendingBalance.Add(pendingBalance, scanned.pending)
-		result.UTXOs = append(result.UTXOs, scanned.utxos...)
+		for _, utxo := range scanned.utxos {
+			key := fmt.Sprintf("%s:%d", utxo.TxID, utxo.Vout)
+			if _, duplicate := seenUTXOs[key]; duplicate {
+				return ports.Snapshot{}, fmt.Errorf("%w: duplicate UTXO across wallet addresses", ErrMalformedResponse)
+			}
+			seenUTXOs[key] = struct{}{}
+			result.UTXOs = append(result.UTXOs, utxo)
+		}
 		for _, address := range scanned.addresses {
 			addressSet[address.Address] = struct{}{}
 		}

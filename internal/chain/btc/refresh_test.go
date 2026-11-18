@@ -406,3 +406,40 @@ func TestTransactionForWalletDirections(t *testing.T) {
 		})
 	}
 }
+
+
+type duplicateUTXOProvider struct {
+	*refreshProvider
+}
+
+func (p *duplicateUTXOProvider) Do(ctx context.Context, req provider.Request) (*provider.Response, error) {
+	if strings.HasSuffix(req.Path, "/utxo") {
+		body := `[{"txid":"` + strings.Repeat("a", 64) + `","vout":0,"value":10000,"status":{"confirmed":false}}]`
+		return &provider.Response{Status: http.StatusOK, Body: []byte(body)}, nil
+	}
+	return p.refreshProvider.Do(ctx, req)
+}
+
+func TestScannerRefreshRejectsDuplicateUTXOAcrossWalletAddresses(t *testing.T) {
+	used := make(map[string]bool)
+	for _, chain := range []domain.AddressChain{domain.ChainReceive, domain.ChainChange} {
+		program := make([]byte, 20)
+		if chain == domain.ChainChange {
+			program[1] = 1
+		}
+		used[testWitnessAddress("tb", program)] = true
+	}
+	provider := &duplicateUTXOProvider{refreshProvider: &refreshProvider{used: used}}
+	api, err := NewEsplora(provider, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = scanner.Refresh(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}, domain.BTC)
+	if !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("duplicate outpoint across receive/change chains accepted: %v", err)
+	}
+}
