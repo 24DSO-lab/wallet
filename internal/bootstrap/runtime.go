@@ -23,6 +23,7 @@ import (
 	"github.com/24DSO-lab/wallet/internal/keystore"
 	"github.com/24DSO-lab/wallet/internal/logging"
 	"github.com/24DSO-lab/wallet/internal/ports"
+	"github.com/24DSO-lab/wallet/internal/processlock"
 	"github.com/24DSO-lab/wallet/internal/provider"
 	"github.com/24DSO-lab/wallet/internal/secret"
 	"github.com/24DSO-lab/wallet/internal/securestore"
@@ -47,6 +48,7 @@ type Runtime struct {
 	providerKeyConfigured bool
 	keys     config.APIKeys
 	logger   *slog.Logger
+	processLock *processlock.Lock
 	profiles map[domain.Profile]profileRuntime
 	active   domain.Profile
 }
@@ -58,6 +60,13 @@ func New() (*Runtime, error) {
 	baseDir, err := config.DefaultBaseDir()
 	if err != nil {
 		return nil, err
+	}
+	if err := os.MkdirAll(baseDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create application data directory: %w", err)
+	}
+	instanceLock, err := processlock.Acquire(filepath.Join(baseDir, "wallet.lock"))
+	if err != nil {
+		return nil, fmt.Errorf("acquire wallet instance lock: %w", err)
 	}
 	rawKeys := map[config.Provider]string{
 		config.ProviderETHRPC:   os.Getenv("ALCHEMY_API_KEY"),
@@ -77,9 +86,11 @@ func New() (*Runtime, error) {
 		baseDir: baseDir, secretPath: secretPath, providerKeyConfigured: rawKeys[config.ProviderETHIndex] != "", keys: keys, logger: logger,
 		profiles: make(map[domain.Profile]profileRuntime),
 		active: domain.ProfileTest,
+		processLock: instanceLock,
 	}
 	initial, err := rt.build(context.Background(), domain.ProfileTest)
 	if err != nil {
+		_ = instanceLock.Close()
 		return nil, err
 	}
 	rt.profiles[domain.ProfileTest] = initial
@@ -368,5 +379,11 @@ func (r *Runtime) Shutdown(ctx context.Context) {
 			}
 		}
 		delete(r.profiles, profile)
+	}
+	if r.processLock != nil {
+		if err := r.processLock.Close(); err != nil {
+			r.logger.Error("release wallet instance lock", "error", err)
+		}
+		r.processLock = nil
 	}
 }
