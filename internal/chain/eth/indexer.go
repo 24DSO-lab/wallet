@@ -220,6 +220,9 @@ func (r etherscanTx) decode() (IndexedTx, error) {
 	if tx.Time, err = parseTimestamp(r.TimeStamp); err != nil {
 		return tx, err
 	}
+	if (r.IsError != "0" && r.IsError != "1") || (r.TxReceiptStatus != "0" && r.TxReceiptStatus != "1") {
+		return tx, errBadRow
+	}
 	tx.Failed = r.IsError == "1" || r.TxReceiptStatus == "0"
 	input, err := parseHexData(r.Input)
 	if err != nil {

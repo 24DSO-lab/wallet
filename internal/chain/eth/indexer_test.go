@@ -135,6 +135,10 @@ func TestIndexerRejectsMalformedRows(t *testing.T) {
 		"bad checksum":     txRow(hash1, strings.Replace(addrB, "fB69", "FB69", 1), addrA, "1", "0x"),
 		"timestamp far":    strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), "1700000000", "99999999999999", 1),
 		"block not number": strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), `"100"`, `"abc"`, 1),
+		"missing isError": strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), `,"isError":"0"`, "", 1),
+		"invalid isError": strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), `"isError":"0"`, `"isError":"2"`, 1),
+		"missing receipt status": strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), `,"txreceipt_status":"1"`, "", 1),
+		"invalid receipt status": strings.Replace(txRow(hash1, addrB, addrA, "1", "0x"), `"txreceipt_status":"1"`, `"txreceipt_status":"2"`, 1),
 	}
 	for name, row := range bad {
 		t.Run(name, func(t *testing.T) {
