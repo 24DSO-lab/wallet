@@ -11,6 +11,12 @@ import (
 // PrepareRBF creates a fresh, independently verified replacement draft for an
 // accepted, unconfirmed Bitcoin transaction. It never accesses private keys.
 func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.TxID) (ports.Replacement, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return ports.Replacement{}, lockErr
+	}
+	defer unlockData()
+
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	wallet, err := s.store.Wallets().Get(ctx, walletID)
@@ -38,6 +44,13 @@ func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.T
 // the signed recovery payload before broadcast, and only retires the old
 // pending record after the provider accepts the replacement.
 func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement ports.Replacement, sec ports.Secrets) (domain.TxID, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return "", lockErr
+	}
+	defer unlockData()
+
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
@@ -93,6 +106,12 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 
 // HasRBF reports whether a pending record can be offered for replacement.
 func (s *Service) HasRBF(ctx context.Context, walletID string, txid domain.TxID) bool {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return false
+	}
+	defer unlockData()
+
 	p, err := s.store.PendingTxs().Get(ctx,txid)
 	if err != nil || p.WalletID != walletID || p.Asset != domain.BTC || p.Network != domain.NetworkBitcoin || !p.BroadcastAccepted { return false }
 	if _, ok := s.chains[domain.NetworkBitcoin].(ports.RBFAdapter); !ok {
