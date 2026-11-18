@@ -135,8 +135,8 @@ func TestScannerRefreshAddressLookupsAreBoundedAndConcurrent(t *testing.T) {
 	if max <= 1 {
 		t.Fatalf("address lookups were not concurrent: max concurrency = %d", max)
 	}
-	if max > maxConcurrentAddressLookups {
-		t.Fatalf("address lookup concurrency = %d, want <= %d", max, maxConcurrentAddressLookups)
+	if max > 2*maxConcurrentAddressLookups {
+		t.Fatalf("address lookup concurrency = %d, want <= %d across both chains", max, 2*maxConcurrentAddressLookups)
 	}
 }
 
