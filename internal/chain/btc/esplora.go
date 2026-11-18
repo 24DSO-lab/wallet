@@ -315,17 +315,41 @@ func (e *Esplora) GetTipHeight(ctx context.Context) (uint64, error) {
 }
 
 
-// HasSpentOutputs checks Esplora's outspends endpoint. RBF replacement is
-// rejected when any original output has been spent: descendant package fees
-// cannot be safely accounted for from this wallet's available data.
+// HasSpentOutputs checks every output using Esplora's outspends endpoint.
+// RBF is allowed only when the response accounts for every transaction output;
+// incomplete or malformed provider data must fail closed.
 func (e *Esplora) HasSpentOutputs(ctx context.Context, txid string) (bool, error) {
-	if !validTxID(txid) { return false, ErrInvalidTxID }
-	var out []json.RawMessage
-	if err := e.getJSON(ctx, "/tx/"+txid+"/outspends", &out); err != nil { return false, err }
-	for _, raw := range out {
-		var item struct { Spent bool `json:"spent"`; TxID string `json:"txid"` }
-		if err := json.Unmarshal(raw, &item); err != nil { return false, ErrMalformedResponse }
-		if item.Spent || item.TxID != "" { return true, nil }
+	if !validTxID(txid) {
+		return false, ErrInvalidTxID
+	}
+	tx, err := e.GetTransaction(ctx, txid)
+	if err != nil {
+		return false, err
+	}
+	if len(tx.Vout) == 0 {
+		return false, ErrMalformedResponse
+	}
+
+	var out []struct {
+		Spent *bool  `json:"spent"`
+		TxID  string `json:"txid"`
+	}
+	if err := e.getJSON(ctx, "/tx/"+txid+"/outspends", &out); err != nil {
+		return false, err
+	}
+	if len(out) != len(tx.Vout) {
+		return false, ErrMalformedResponse
+	}
+	for _, item := range out {
+		if item.Spent == nil {
+			return false, ErrMalformedResponse
+		}
+		if *item.Spent {
+			return true, nil
+		}
+		if item.TxID != "" {
+			return false, ErrMalformedResponse
+		}
 	}
 	return false, nil
 }

@@ -14,15 +14,22 @@ import (
 )
 
 type recordingProvider struct {
-	requests []provider.Request
-	response provider.Response
-	err error
+	requests  []provider.Request
+	response  provider.Response
+	responses []provider.Response
+	next      int
+	err       error
 }
 
 func (p *recordingProvider) Do(_ context.Context, req provider.Request) (*provider.Response, error) {
 	p.requests = append(p.requests, req)
 	if p.err != nil {
 		return nil, p.err
+	}
+	if p.next < len(p.responses) {
+		response := p.responses[p.next]
+		p.next++
+		return &response, nil
 	}
 	return &p.response, nil
 }
@@ -140,19 +147,58 @@ func TestConservativeFeeRate(t *testing.T) {
 	}
 }
 
-func TestEsploraHasSpentOutputs(t *testing.T) {
+func TestEsploraHasSpentOutputsFailsClosedOnIncompleteProviderData(t *testing.T) {
 	txid := strings.Repeat("cd", 32)
-	for _, tc := range []struct { name, body string; want bool }{
-		{name:"all outputs unspent",body:`[{"spent":false},{"spent":false}]`,want:false},
-		{name:"spent output",body:`[{"spent":false},{"spent":true,"txid":"`+strings.Repeat("ab",32)+`","status":{"confirmed":false}}]`,want:true},
+	transaction := `{"txid":"` + txid + `","vout":[{},{}]}`
+	spentTxID := strings.Repeat("ab", 32)
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+		wantErr bool
+	}{
+		{name: "all outputs unspent", body: `[{"spent":false},{"spent":false}]`},
+		{name: "spent output", body: `[{"spent":false},{"spent":true,"txid":"` + spentTxID + `","status":{"confirmed":false}}]`, want: true},
+		{name: "empty response", body: `[]`, wantErr: true},
+		{name: "truncated response", body: `[{"spent":false}]`, wantErr: true},
+		{name: "missing spent flag", body: `[{"spent":false},{}]`, wantErr: true},
+		{name: "null spent flag", body: `[{"spent":false},{"spent":null}]`, wantErr: true},
+		{name: "contradictory unspent entry", body: `[{"spent":false},{"spent":false,"txid":"` + spentTxID + `"}]`, wantErr: true},
 	} {
-		t.Run(tc.name,func(t *testing.T){
-			p:=&recordingProvider{response:provider.Response{Status:http.StatusOK,Body:[]byte(tc.body)}}
-			api,_:=NewEsplora(p,domain.ProfileTest)
-			got,err:=api.HasSpentOutputs(context.Background(),txid)
-			if err!=nil { t.Fatal(err) }
-			if got!=tc.want { t.Fatalf("HasSpentOutputs = %v, want %v",got,tc.want) }
-			if len(p.requests)!=1 || p.requests[0].Path!="/tx/"+txid+"/outspends" { t.Fatalf("unexpected request: %+v",p.requests) }
+		t.Run(tc.name, func(t *testing.T) {
+			p := &recordingProvider{responses: []provider.Response{
+				{Status: http.StatusOK, Body: []byte(transaction)},
+				{Status: http.StatusOK, Body: []byte(tc.body)},
+			}}
+			api, _ := NewEsplora(p, domain.ProfileTest)
+			got, err := api.HasSpentOutputs(context.Background(), txid)
+			if tc.wantErr {
+				if !errors.Is(err, ErrMalformedResponse) {
+					t.Fatalf("expected malformed response, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("HasSpentOutputs = %v, want %v", got, tc.want)
+			}
+			if len(p.requests) != 2 || p.requests[0].Path != "/tx/"+txid ||
+				p.requests[1].Path != "/tx/"+txid+"/outspends" {
+				t.Fatalf("unexpected requests: %+v", p.requests)
+			}
 		})
+	}
+}
+
+func TestEsploraHasSpentOutputsRejectsTransactionWithoutOutputs(t *testing.T) {
+	txid := strings.Repeat("cd", 32)
+	p := &recordingProvider{response: provider.Response{Status: http.StatusOK,
+		Body: []byte(`{"txid":"` + txid + `","vout":[]}`)}}
+	api, _ := NewEsplora(p, domain.ProfileTest)
+	if _, err := api.HasSpentOutputs(context.Background(), txid); !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("expected malformed transaction response, got %v", err)
+	}
+	if len(p.requests) != 1 {
+		t.Fatalf("outspends queried for malformed transaction: %+v", p.requests)
 	}
 }
