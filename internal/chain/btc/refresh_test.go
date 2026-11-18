@@ -62,6 +62,42 @@ func (p *refreshProvider) Do(_ context.Context, req provider.Request) (*provider
 	return &provider.Response{Status: http.StatusOK, Body: []byte(body)}, nil
 }
 
+func TestFetchAddressTransactionsRejectsRepeatedPage(t *testing.T) {
+	txids := make([]string, 25)
+	for i := range txids {
+		txids[i] = fmt.Sprintf("%064x", i+1)
+	}
+	var page strings.Builder
+	page.WriteByte('[')
+	for i, txid := range txids {
+		if i > 0 {
+			page.WriteByte(',')
+		}
+		fmt.Fprintf(&page, `{"txid":%q}`, txid)
+	}
+	page.WriteByte(']')
+	body := []byte(page.String())
+	p := &recordingProvider{responses: []provider.Response{
+		{Status: http.StatusOK, Body: body},
+		{Status: http.StatusOK, Body: body},
+	}}
+	api, err := NewEsplora(p, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fetchAddressTransactions(context.Background(), api, validTestAddress())
+	if !errors.Is(err, ErrMalformedResponse) {
+		t.Fatalf("expected repeated page to be rejected, got %v", err)
+	}
+	if len(p.requests) != 2 {
+		t.Fatalf("requests = %d, want exactly 2 before rejecting repeated page", len(p.requests))
+	}
+	wantCursor := "/txs/chain/" + txids[len(txids)-1]
+	if !strings.HasSuffix(p.requests[1].Path, wantCursor) {
+		t.Fatalf("second page path = %q, want suffix %q", p.requests[1].Path, wantCursor)
+	}
+}
+
 func TestScannerRefreshScansBothChainsToGapLimit(t *testing.T) {
 	deriver := &fakeDeriver{}
 	p := &refreshProvider{used: make(map[string]bool)}

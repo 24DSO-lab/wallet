@@ -388,21 +388,8 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 					utxoCh <- utxoLookup{items: items, err: err}
 				}()
 				go func() {
-					items := make([]EsploraTx, 0)
-					cursor := ""
-					for {
-						page, err := s.api.GetTransactions(ctx, item.address, cursor)
-						if err != nil {
-							historyCh <- historyLookup{err: err}
-							return
-						}
-						items = append(items, page...)
-						if len(page) < 25 {
-							break
-						}
-						cursor = page[len(page)-1].TxID
-					}
-					historyCh <- historyLookup{items: items}
+					items, err := fetchAddressTransactions(ctx, s.api, item.address)
+					historyCh <- historyLookup{items: items, err: err}
 				}()
 				utxoResult, historyResult := <-utxoCh, <-historyCh
 				utxoItems, txItems := utxoResult.items, historyResult.items
@@ -465,6 +452,41 @@ func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, cha
 		first += batchSize
 	}
 	return nil, nil, nil, nil, nil, ErrAddressScanLimit
+}
+
+// fetchAddressTransactions follows Esplora's 25-item cursor pagination and
+// rejects repeated transaction IDs. A repeated full page must not keep the
+// scanner requesting the same cursor indefinitely.
+func fetchAddressTransactions(ctx context.Context, api *Esplora, address string) ([]EsploraTx, error) {
+	const pageSize = 25
+	items := make([]EsploraTx, 0)
+	seen := make(map[string]struct{})
+	cursor := ""
+	for {
+		page, err := api.GetTransactions(ctx, address, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) > pageSize {
+			return nil, ErrMalformedResponse
+		}
+		for _, tx := range page {
+			txid := strings.ToLower(tx.TxID)
+			if _, duplicate := seen[txid]; duplicate {
+				return nil, ErrMalformedResponse
+			}
+			seen[txid] = struct{}{}
+			items = append(items, tx)
+		}
+		if len(page) < pageSize {
+			return items, nil
+		}
+		nextCursor := strings.ToLower(page[len(page)-1].TxID)
+		if nextCursor == cursor {
+			return nil, ErrMalformedResponse
+		}
+		cursor = nextCursor
+	}
 }
 
 func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[string]struct{}) (domain.Tx, error) {
