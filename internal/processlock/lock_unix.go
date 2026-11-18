@@ -14,7 +14,7 @@ type Lock struct {
 
 // Acquire obtains a non-blocking exclusive advisory lock for the process lifetime.
 func Acquire(path string) (*Lock, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is derived from the application-owned config directory
 	if err != nil {
 		return nil, err
 	}
