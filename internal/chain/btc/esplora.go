@@ -74,7 +74,8 @@ type TxStatus struct {
 type FeeEstimates map[string]float64
 
 type EsploraInput struct {
-	Prevout *struct {
+	IsCoinbase bool `json:"is_coinbase"`
+	Prevout    *struct {
 		ScriptPubKeyAddress string `json:"scriptpubkey_address"`
 		Value               uint64 `json:"value"`
 	} `json:"prevout"`

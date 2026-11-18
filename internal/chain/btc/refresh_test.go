@@ -510,3 +510,50 @@ func TestScannerRefreshRejectsDuplicateUTXOAcrossWalletAddresses(t *testing.T) {
 		t.Fatalf("duplicate outpoint across receive/change chains accepted: %v", err)
 	}
 }
+
+
+func TestTransactionForWalletValidatesMissingPrevout(t *testing.T) {
+	walletAddresses := map[string]struct{}{"bc1-wallet": {}}
+	base := EsploraTx{
+		TxID: strings.Repeat("a", 64),
+		Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 500}},
+	}
+	t.Run("non-coinbase input without prevout", func(t *testing.T) {
+		tx := base
+		tx.Vin = []EsploraInput{{}}
+		if _, err := transactionForWallet("w", tx, walletAddresses); !errors.Is(err, ErrMalformedResponse) {
+			t.Fatalf("missing non-coinbase prevout accepted: %v", err)
+		}
+	})
+	t.Run("coinbase input", func(t *testing.T) {
+		tx := base
+		tx.Vin = []EsploraInput{{IsCoinbase: true}}
+		got, err := transactionForWallet("w", tx, walletAddresses)
+		if err != nil {
+			t.Fatalf("valid coinbase transaction rejected: %v", err)
+		}
+		if got.Direction != domain.DirectionIn || got.Amount.String() != "500" {
+			t.Fatalf("unexpected coinbase transaction: %+v", got)
+		}
+	})
+	t.Run("coinbase mixed with another input", func(t *testing.T) {
+		tx := base
+		tx.Vin = []EsploraInput{{IsCoinbase: true}, {Prevout: &struct {
+			ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+			Value               uint64 `json:"value"`
+		}{ScriptPubKeyAddress: "external", Value: 500}}}
+		if _, err := transactionForWallet("w", tx, walletAddresses); !errors.Is(err, ErrMalformedResponse) {
+			t.Fatalf("mixed coinbase transaction accepted: %v", err)
+		}
+	})
+	t.Run("coinbase with prevout", func(t *testing.T) {
+		tx := base
+		tx.Vin = []EsploraInput{{IsCoinbase: true, Prevout: &struct {
+			ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+			Value               uint64 `json:"value"`
+		}{ScriptPubKeyAddress: "external", Value: 500}}}
+		if _, err := transactionForWallet("w", tx, walletAddresses); !errors.Is(err, ErrMalformedResponse) {
+			t.Fatalf("coinbase input with prevout accepted: %v", err)
+		}
+	})
+}

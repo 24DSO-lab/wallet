@@ -507,7 +507,13 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 
 	for _, input := range tx.Vin {
 		if input.Prevout == nil {
+			if !input.IsCoinbase || len(tx.Vin) != 1 {
+				return domain.Tx{}, fmt.Errorf("%w: transaction has an unexpected missing prevout", ErrMalformedResponse)
+			}
 			continue
+		}
+		if input.IsCoinbase {
+			return domain.Tx{}, fmt.Errorf("%w: coinbase input unexpectedly has a prevout", ErrMalformedResponse)
 		}
 		if _, ours := walletAddresses[input.Prevout.ScriptPubKeyAddress]; ours {
 			walletInputs.Add(walletInputs, new(big.Int).SetUint64(input.Prevout.Value))
