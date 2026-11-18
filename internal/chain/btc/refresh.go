@@ -490,12 +490,19 @@ func fetchAddressTransactions(ctx context.Context, api *Esplora, address string)
 }
 
 func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[string]struct{}) (domain.Tx, error) {
+	if len(tx.Vin) == 0 || len(tx.Vout) == 0 {
+		return domain.Tx{}, fmt.Errorf("%w: transaction is missing inputs or outputs", ErrMalformedResponse)
+	}
 	walletInputs := new(big.Int)
 	walletOutputs := new(big.Int)
 	externalOutputs := new(big.Int)
 	externalInputs := new(big.Int)
 	inputCounterparty := ""
 	outputCounterparty := ""
+	hasInputCounterparty := false
+	hasOutputCounterparty := false
+	mixedInputCounterparty := false
+	mixedOutputCounterparty := false
 
 	for _, input := range tx.Vin {
 		if input.Prevout == nil {
@@ -505,8 +512,12 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 			walletInputs.Add(walletInputs, new(big.Int).SetUint64(input.Prevout.Value))
 		} else {
 			externalInputs.Add(externalInputs, new(big.Int).SetUint64(input.Prevout.Value))
-			if inputCounterparty == "" {
-				inputCounterparty = input.Prevout.ScriptPubKeyAddress
+			address := input.Prevout.ScriptPubKeyAddress
+			if !hasInputCounterparty {
+				inputCounterparty = address
+				hasInputCounterparty = true
+			} else if inputCounterparty != address {
+				mixedInputCounterparty = true
 			}
 		}
 	}
@@ -515,8 +526,12 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 			walletOutputs.Add(walletOutputs, new(big.Int).SetUint64(output.Value))
 		} else {
 			externalOutputs.Add(externalOutputs, new(big.Int).SetUint64(output.Value))
-			if outputCounterparty == "" {
-				outputCounterparty = output.ScriptPubKeyAddress
+			address := output.ScriptPubKeyAddress
+			if !hasOutputCounterparty {
+				outputCounterparty = address
+				hasOutputCounterparty = true
+			} else if outputCounterparty != address {
+				mixedOutputCounterparty = true
 			}
 		}
 	}
@@ -528,10 +543,14 @@ func transactionForWallet(walletID string, tx EsploraTx, walletAddresses map[str
 	switch {
 	case walletInputs.Sign() == 0 && walletOutputs.Sign() > 0:
 		direction = domain.DirectionIn
-		counterparty = inputCounterparty
+		if hasInputCounterparty && !mixedInputCounterparty {
+			counterparty = inputCounterparty
+		}
 	case externalOutputs.Sign() > 0:
 		direction = domain.DirectionOut
-		counterparty = outputCounterparty
+		if hasOutputCounterparty && !mixedOutputCounterparty {
+			counterparty = outputCounterparty
+		}
 		amount.Set(externalOutputs)
 		fee = tx.Fee
 	case walletInputs.Sign() > 0 && externalOutputs.Sign() == 0:

@@ -420,6 +420,37 @@ func TestTransactionForWalletDirections(t *testing.T) {
 			direction: domain.DirectionOut, amount: "6000", fee: "200", counterparty: "recipient",
 		},
 		{
+			name: "incoming with multiple counterparties",
+			tx: EsploraTx{TxID: strings.Repeat("e", 64),
+				Vin: []EsploraInput{
+					{Prevout: &struct {
+						ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+						Value uint64 `json:"value"`
+					}{ScriptPubKeyAddress: "sender-one", Value: 500}},
+					{Prevout: &struct {
+						ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+						Value uint64 `json:"value"`
+					}{ScriptPubKeyAddress: "sender-two", Value: 700}},
+				},
+				Vout: []EsploraOutput{{ScriptPubKeyAddress: "bc1-wallet", Value: 1200}},
+			},
+			direction: domain.DirectionIn, amount: "1200", fee: "0", counterparty: "",
+		},
+		{
+			name: "outgoing with multiple counterparties",
+			tx: EsploraTx{TxID: strings.Repeat("f", 64),
+				Vin: []EsploraInput{{Prevout: &struct {
+					ScriptPubKeyAddress string `json:"scriptpubkey_address"`
+					Value uint64 `json:"value"`
+				}{ScriptPubKeyAddress: "bc1-wallet", Value: 10000}}},
+				Vout: []EsploraOutput{
+					{ScriptPubKeyAddress: "recipient-one", Value: 4000},
+					{ScriptPubKeyAddress: "recipient-two", Value: 5800},
+				},
+			},
+			direction: domain.DirectionOut, amount: "9800", fee: "0", counterparty: "",
+		},
+		{
 			name: "self",
 			tx: EsploraTx{TxID: strings.Repeat("c", 64), Fee: 200,
 				Vin: []EsploraInput{{Prevout: &struct {
