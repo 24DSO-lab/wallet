@@ -26,6 +26,11 @@ func (s *Service) PrepareRBF(ctx context.Context, walletID string, txid domain.T
 	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC || !original.BroadcastAccepted {
 		return ports.Replacement{}, domain.NewError(domain.CodeInvalidInput, errors.New("transaction is not an accepted Bitcoin transaction for this wallet"))
 	}
+	// Do not prepare a second spend while any other broadcast on this wallet
+	// has an unknown outcome; it may already consume the same UTXOs.
+	if err := s.rejectPendingBroadcast(ctx, walletID, domain.NetworkBitcoin); err != nil {
+		return ports.Replacement{}, err
+	}
 	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return ports.Replacement{}, err }
 	chain := s.chains[domain.NetworkBitcoin]
 	adapter, ok := chain.(ports.RBFAdapter)
@@ -63,6 +68,11 @@ func (s *Service) ConfirmRBF(ctx context.Context, walletID string, replacement p
 	if err != nil { return "", err }
 	if original.WalletID != walletID || original.Network != domain.NetworkBitcoin || original.Asset != domain.BTC || !original.BroadcastAccepted {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("original transaction is not eligible for replacement"))
+	}
+	// Recheck immediately before signing: an unresolved send must never race
+	// a replacement and potentially double-spend the wallet's UTXOs.
+	if err := s.rejectPendingBroadcast(ctx, walletID, domain.NetworkBitcoin); err != nil {
+		return "", err
 	}
 	if err := s.rejectExistingReplacement(ctx, original.TxID); err != nil { return "", err }
 	chain := s.chains[domain.NetworkBitcoin]
