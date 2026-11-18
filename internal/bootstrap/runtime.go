@@ -68,6 +68,12 @@ func New() (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("acquire wallet instance lock: %w", err)
 	}
+	keepInstanceLock := false
+	defer func() {
+		if !keepInstanceLock {
+			_ = instanceLock.Close()
+		}
+	}()
 	rawKeys := map[config.Provider]string{
 		config.ProviderETHRPC:   os.Getenv("ALCHEMY_API_KEY"),
 		config.ProviderETHIndex: os.Getenv("ETHERSCAN_API_KEY"),
@@ -90,7 +96,6 @@ func New() (*Runtime, error) {
 	}
 	initial, err := rt.build(context.Background(), domain.ProfileTest)
 	if err != nil {
-		_ = instanceLock.Close()
 		return nil, err
 	}
 	rt.profiles[domain.ProfileTest] = initial
@@ -100,6 +105,7 @@ func New() (*Runtime, error) {
 		GetProviderSettings: rt.getProviderSettings, SaveEtherscanAPIKey: rt.saveEtherscanAPIKey,
 		DeleteEtherscanAPIKey: rt.deleteEtherscanAPIKey,
 	})
+	keepInstanceLock = true
 	return rt, nil
 }
 
