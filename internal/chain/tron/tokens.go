@@ -43,7 +43,13 @@ var USDTSources = map[domain.Profile]ContractSource{
 const USDTDecimals = 6
 
 // USDTContractAddress returns the profile-specific verified USDT contract.
-func USDTContractAddress(p domain.Profile) (string, error) { address, err := usdtContract(p); if err != nil { return "", err }; return address.String(), nil }
+func USDTContractAddress(p domain.Profile) (string, error) {
+	address, err := usdtContract(p)
+	if err != nil {
+		return "", err
+	}
+	return address.String(), nil
+}
 
 // usdtContract возвращает адрес контракта USDT профиля.
 func usdtContract(p domain.Profile) (Addr, error) {

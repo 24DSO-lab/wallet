@@ -13,7 +13,24 @@ import (
 )
 
 func TestAssetCatalogUsesProfileAndCoversAllAssets(t *testing.T) {
- for _,tc:=range []struct{p domain.Profile;btc,eth,tron,usdc,usdt string}{{domain.ProfileTest,"Bitcoin testnet4","Ethereum Sepolia","TRON Nile","0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238","TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"},{domain.ProfileMain,"Bitcoin","Ethereum","TRON","0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"}} {t.Run(string(tc.p),func(t *testing.T){got,err:=NewWithDependencies(Dependencies{Profile:tc.p}).GetAssetCatalog();if err!=nil{t.Fatal(err)};if len(got)!=5{t.Fatalf("got %d assets",len(got))};want:=[]string{"BTC","ETH","USDC","USDT","TRX"};for i:=range want{if got[i].Asset!=want[i]{t.Errorf("asset[%d]=%s",i,got[i].Asset)}};if got[0].NetworkName!=tc.btc||got[1].NetworkName!=tc.eth||got[2].ContractAddress!=tc.usdc||got[3].NetworkName!=tc.tron||got[3].ContractAddress!=tc.usdt{t.Errorf("catalog mismatch: %+v",got)};if got[0].Kind!="native"||got[1].Kind!="native"||got[2].Kind!="token"||got[2].Standard!="ERC-20"||got[3].Kind!="token"||got[3].Standard!="TRC-20"||got[4].Kind!="native"{t.Errorf("asset kind mismatch: %+v",got)}})}
+	tests := []struct {
+		profile domain.Profile
+		btc, eth, tron, usdc, usdt string
+	}{
+		{domain.ProfileTest, "Bitcoin testnet4", "Ethereum Sepolia", "TRON Nile", "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"},
+		{domain.ProfileMain, "Bitcoin", "Ethereum", "TRON", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.profile), func(t *testing.T) {
+			got, err := NewWithDependencies(Dependencies{Profile: tt.profile}).GetAssetCatalog()
+			if err != nil { t.Fatal(err) }
+			if len(got) != 5 { t.Fatalf("got %d assets, want 5", len(got)) }
+			want := []string{"BTC", "ETH", "USDC", "USDT", "TRX"}
+			for i := range want { if got[i].Asset != want[i] { t.Errorf("asset[%d] = %s, want %s", i, got[i].Asset, want[i]) } }
+			if got[0].NetworkName != tt.btc || got[1].NetworkName != tt.eth || got[2].ContractAddress != tt.usdc || got[3].NetworkName != tt.tron || got[3].ContractAddress != tt.usdt { t.Errorf("catalog mismatch: %+v", got) }
+			if got[0].Kind != "native" || got[1].Kind != "native" || got[2].Kind != "token" || got[2].Standard != "ERC-20" || got[3].Kind != "token" || got[3].Standard != "TRC-20" || got[4].Kind != "native" { t.Errorf("asset kind mismatch: %+v", got) }
+		})
+	}
 }
 
 func TestSetProfileRejectsMainnetUntilAcceptanceGatesPass(t *testing.T) {

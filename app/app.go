@@ -835,11 +835,37 @@ func (a *App) SetProfile(profile string) error {
 
 // GetAssetCatalog returns public metadata for every supported asset, even while locked.
 func (a *App) GetAssetCatalog() ([]AssetCatalogDTO, error) {
- a.profileMu.RLock(); defer a.profileMu.RUnlock(); profile:=a.activeProfile(); if !profile.Valid(){return nil,errors.New("invalid_profile")}
- btcName,ethName,tronName:="Bitcoin","Ethereum","TRON"; btcURL,ethURL,tronURL:="https://mempool.space","https://etherscan.io","https://tronscan.org"
- if profile==domain.ProfileTest {btcName,ethName,tronName="Bitcoin testnet4","Ethereum Sepolia","TRON Nile";btcURL,ethURL,tronURL="https://mempool.space/testnet4","https://sepolia.etherscan.io","https://nile.tronscan.org"}
- usdc,err:=eth.USDCContractAddress(profile);if err!=nil{return nil,errors.New("asset_catalog_unavailable")};usdt,err:=tron.USDTContractAddress(profile);if err!=nil{return nil,errors.New("asset_catalog_unavailable")}
- return []AssetCatalogDTO{{Asset:"BTC",Network:"bitcoin",NetworkName:btcName,Kind:"native",ExplorerURL:btcURL},{Asset:"ETH",Network:"ethereum",NetworkName:ethName,Kind:"native",ExplorerURL:ethURL},{Asset:"USDC",Network:"ethereum",NetworkName:ethName,Kind:"token",Standard:"ERC-20",ContractAddress:usdc,ExplorerURL:ethURL,ContractExplorerURL:ethURL+"/address/"+usdc},{Asset:"USDT",Network:"tron",NetworkName:tronName,Kind:"token",Standard:"TRC-20",ContractAddress:usdt,ExplorerURL:tronURL,ContractExplorerURL:tronURL+"/#/contract/"+usdt},{Asset:"TRX",Network:"tron",NetworkName:tronName,Kind:"native",ExplorerURL:tronURL}},nil
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+
+	profile := a.activeProfile()
+	if !profile.Valid() {
+		return nil, errors.New("invalid_profile")
+	}
+
+	btcName, ethName, tronName := "Bitcoin", "Ethereum", "TRON"
+	btcURL, ethURL, tronURL := "https://mempool.space", "https://etherscan.io", "https://tronscan.org"
+	if profile == domain.ProfileTest {
+		btcName, ethName, tronName = "Bitcoin testnet4", "Ethereum Sepolia", "TRON Nile"
+		btcURL, ethURL, tronURL = "https://mempool.space/testnet4", "https://sepolia.etherscan.io", "https://nile.tronscan.org"
+	}
+
+	usdc, err := eth.USDCContractAddress(profile)
+	if err != nil {
+		return nil, errors.New("asset_catalog_unavailable")
+	}
+	usdt, err := tron.USDTContractAddress(profile)
+	if err != nil {
+		return nil, errors.New("asset_catalog_unavailable")
+	}
+
+	return []AssetCatalogDTO{
+		{Asset: "BTC", Network: "bitcoin", NetworkName: btcName, Kind: "native", ExplorerURL: btcURL},
+		{Asset: "ETH", Network: "ethereum", NetworkName: ethName, Kind: "native", ExplorerURL: ethURL},
+		{Asset: "USDC", Network: "ethereum", NetworkName: ethName, Kind: "token", Standard: "ERC-20", ContractAddress: usdc, ExplorerURL: ethURL, ContractExplorerURL: ethURL + "/address/" + usdc},
+		{Asset: "USDT", Network: "tron", NetworkName: tronName, Kind: "token", Standard: "TRC-20", ContractAddress: usdt, ExplorerURL: tronURL, ContractExplorerURL: tronURL + "/#/contract/" + usdt},
+		{Asset: "TRX", Network: "tron", NetworkName: tronName, Kind: "native", ExplorerURL: tronURL},
+	}, nil
 }
 
 // GetProviderSettings exposes configuration state only; the credential never crosses the Wails boundary.

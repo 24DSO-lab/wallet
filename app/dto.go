@@ -8,7 +8,16 @@ import (
 )
 
 // AssetCatalogDTO describes public profile-specific asset metadata.
-type AssetCatalogDTO struct { Asset string `json:"asset"`; Network string `json:"network"`; NetworkName string `json:"networkName"`; Kind string `json:"kind"`; Standard string `json:"standard,omitempty"`; ContractAddress string `json:"contractAddress,omitempty"`; ExplorerURL string `json:"explorerUrl"`; ContractExplorerURL string `json:"contractExplorerUrl,omitempty"` }
+type AssetCatalogDTO struct {
+	Asset               string `json:"asset"`
+	Network             string `json:"network"`
+	NetworkName         string `json:"networkName"`
+	Kind                string `json:"kind"`
+	Standard            string `json:"standard,omitempty"`
+	ContractAddress     string `json:"contractAddress,omitempty"`
+	ExplorerURL         string `json:"explorerUrl"`
+	ContractExplorerURL string `json:"contractExplorerUrl,omitempty"`
+}
 
 // DTOs are the only data structures serialized across the Wails boundary.
 type ProviderSettingsDTO struct {
