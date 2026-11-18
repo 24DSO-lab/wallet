@@ -3,6 +3,7 @@ package eth
 import (
 	"context"
 	"encoding/hex"
+	"sync"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +59,7 @@ type IndexedTransfer struct {
 type Etherscan struct {
 	client   provider.Client
 	chainID  uint64
+	mu       sync.RWMutex
 	apiKey   string
 	pageSize int
 	maxPages int
@@ -82,8 +84,19 @@ func NewEtherscan(client provider.Client, chainID uint64, apiKey string) (*Ether
 	return &Etherscan{client: client, chainID: chainID, apiKey: apiKey, pageSize: etherscanPageSize, maxPages: etherscanMaxPages}, nil
 }
 
+// SetAPIKey updates the optional Etherscan credential without rebuilding the
+// profile. Each history request snapshots one key so pagination uses it consistently.
+func (e *Etherscan) SetAPIKey(key string) {
+	e.mu.Lock()
+	e.apiKey = key
+	e.mu.Unlock()
+}
+
 // rows запрашивает страницы, пока они полные, и возвращает строки как есть.
 func (e *Etherscan) rows(ctx context.Context, action string, extra url.Values) ([]json.RawMessage, error) {
+	e.mu.RLock()
+	apiKey := e.apiKey
+	e.mu.RUnlock()
 	var all []json.RawMessage
 	for page := 1; page <= e.maxPages; page++ {
 		q := url.Values{
@@ -99,8 +112,8 @@ func (e *Etherscan) rows(ctx context.Context, action string, extra url.Values) (
 		for k, v := range extra {
 			q[k] = v
 		}
-		if e.apiKey != "" {
-			q.Set("apikey", e.apiKey)
+		if apiKey != "" {
+			q.Set("apikey", apiKey)
 		}
 		resp, err := e.client.Do(ctx, provider.Request{Query: q})
 		if err != nil {

@@ -65,6 +65,26 @@ func TestNormalTxsRequestAndParsing(t *testing.T) {
 	}
 }
 
+func TestEtherscanAPIKeyCanBeUpdatedAtRuntime(t *testing.T) {
+	e, fc := newTestEtherscan(t, envelope(), envelope())
+
+	e.SetAPIKey("ROTATED-KEY")
+	if _, err := e.NormalTxs(context.Background(), mustAddr(t, addrA)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.reqs[0].Query.Get("apikey"); got != "ROTATED-KEY" {
+		t.Fatalf("updated API key = %q, want ROTATED-KEY", got)
+	}
+
+	e.SetAPIKey("")
+	if _, err := e.NormalTxs(context.Background(), mustAddr(t, addrA)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.reqs[1].Query.Get("apikey"); got != "" {
+		t.Fatalf("deleted API key is still sent: %q", got)
+	}
+}
+
 func TestNormalTxsKeepsTransferCalldataOnly(t *testing.T) {
 	big := "0x" + strings.Repeat("ab", 200)
 	e, _ := newTestEtherscan(t, envelope(

@@ -35,6 +35,7 @@ type profileRuntime struct {
 	service *service.Service
 	db      *store.DB
 	backup  *backup.Service
+	indexer *eth.Etherscan
 }
 
 // Runtime keeps profile-specific resources alive for the lifetime of Wails.
@@ -46,6 +47,7 @@ type Runtime struct {
 	baseDir               string
 	secretPath            string
 	providerKeyConfigured bool
+	etherscanAPIKey       string
 	keys                  config.APIKeys
 	logger                *slog.Logger
 	processLock           *processlock.Lock
@@ -89,7 +91,8 @@ func New() (*Runtime, error) {
 	redactor := logging.NewRedactor(keys.Values()...)
 	logger := logging.New(os.Stderr, slog.LevelInfo, redactor)
 	rt := &Runtime{
-		baseDir: baseDir, secretPath: secretPath, providerKeyConfigured: rawKeys[config.ProviderETHIndex] != "", keys: keys, logger: logger,
+		baseDir: baseDir, secretPath: secretPath, providerKeyConfigured: rawKeys[config.ProviderETHIndex] != "",
+		etherscanAPIKey: rawKeys[config.ProviderETHIndex], keys: keys, logger: logger,
 		profiles: make(map[domain.Profile]profileRuntime),
 		active: domain.ProfileTest,
 		processLock: instanceLock,
@@ -119,7 +122,13 @@ func (r *Runtime) saveEtherscanAPIKey(key string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := securestore.SaveProviderKey(r.secretPath, key); err != nil { return err }
+	r.etherscanAPIKey = key
 	r.providerKeyConfigured = true
+	for _, profile := range r.profiles {
+		if profile.indexer != nil {
+			profile.indexer.SetAPIKey(key)
+		}
+	}
 	return nil
 }
 
@@ -127,7 +136,13 @@ func (r *Runtime) deleteEtherscanAPIKey() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := securestore.DeleteProviderKey(r.secretPath); err != nil { return err }
-	r.providerKeyConfigured = os.Getenv("ETHERSCAN_API_KEY") != ""
+	r.etherscanAPIKey = os.Getenv("ETHERSCAN_API_KEY")
+	r.providerKeyConfigured = r.etherscanAPIKey != ""
+	for _, profile := range r.profiles {
+		if profile.indexer != nil {
+			profile.indexer.SetAPIKey(r.etherscanAPIKey)
+		}
+	}
 	return nil
 }
 
@@ -192,7 +207,7 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 	if err != nil {
 		return profileRuntime{}, fmt.Errorf("configure Ethereum indexer: %w", err)
 	}
-	indexKey, _ := r.keys.Get(config.ProviderETHIndex)
+	indexKey := r.etherscanAPIKey
 	chainID := eth.ChainIDSepolia
 	if profile == domain.ProfileMain {
 		chainID = eth.ChainIDMainnet
@@ -266,7 +281,7 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		_ = db.Close()
 		return profileRuntime{}, fmt.Errorf("configure backup service: %w", err)
 	}
-	return profileRuntime{service: svc, db: db, backup: backupService}, nil
+	return profileRuntime{service: svc, db: db, backup: backupService, indexer: indexer}, nil
 }
 
 func publicEthereumRPC(profile domain.Profile) string {
