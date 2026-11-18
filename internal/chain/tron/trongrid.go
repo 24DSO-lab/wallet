@@ -131,6 +131,7 @@ func (g *TronGrid) NowBlock(ctx context.Context) (BlockRef, error) {
 func (g *TronGrid) Account(ctx context.Context, owner Addr) (uint64, bool, error) {
 	var r struct {
 		Data []struct {
+			Address string `json:"address"`
 			Balance uint64 `json:"balance"`
 		} `json:"data"`
 	}
@@ -139,6 +140,9 @@ func (g *TronGrid) Account(ctx context.Context, owner Addr) (uint64, bool, error
 	}
 	if len(r.Data) == 0 {
 		return 0, false, nil // аккаунт ещё не активирован
+	}
+	if len(r.Data) != 1 || r.Data[0].Address != owner.String() {
+		return 0, false, bad("account response does not match requested address")
 	}
 	return r.Data[0].Balance, true, nil
 }

@@ -83,7 +83,7 @@ func TestNowBlock(t *testing.T) {
 func TestAccountAndResources(t *testing.T) {
 	me, _ := ParseAddress(otherAddr)
 	g, s := grid(map[string]stubReply{
-		"/v1/accounts/" + otherAddr:  {body: `{"data":[{"balance":123456789}],"success":true}`},
+		"/v1/accounts/" + otherAddr:  {body: `{"data":[{"address":"` + otherAddr + `","balance":123456789}],"success":true}`},
 		"/wallet/getaccountresource": {body: `{"freeNetLimit":600,"freeNetUsed":100,"NetLimit":1000,"NetUsed":1500,"EnergyLimit":5000,"EnergyUsed":200}`},
 	})
 	bal, exists, err := g.Account(context.Background(), me)
@@ -105,6 +105,16 @@ func TestAccountAndResources(t *testing.T) {
 	staked, err := stakedGrid.Resources(context.Background(), me)
 	if err != nil || staked.FreeBandwidth != 500 || staked.StakedBandwidth != 850 {
 		t.Fatalf("separate bandwidth resources = %+v, err=%v", staked, err)
+	}
+	for name, body := range map[string]string{
+		"foreign address": `{"data":[{"address":"TJRabPrwbZy45sbavfcjinPJC18kjpRTv8","balance":999}]}`,
+		"missing address": `{"data":[{"balance":999}]}`,
+		"multiple accounts": `{"data":[{"address":"` + otherAddr + `","balance":1},{"address":"` + otherAddr + `","balance":2}]}`,
+	} {
+		g, _ := grid(map[string]stubReply{"/v1/accounts/" + otherAddr: {body: body}})
+		if _, _, err := g.Account(context.Background(), me); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+			t.Errorf("%s account response accepted: %v", name, err)
+		}
 	}
 	empty, _ := grid(map[string]stubReply{"/v1/accounts/" + otherAddr: {body: `{"data":[],"success":true}`}})
 	if bal, exists, err := empty.Account(context.Background(), me); err != nil || bal != 0 || exists {
