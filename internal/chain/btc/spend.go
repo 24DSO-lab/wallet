@@ -428,7 +428,42 @@ func checkedSliceSize(n uint64, remaining int) (int, bool) {
 	return int(n), true
 }
 
-func readCompactSize(b []byte)(uint64,int,error){if len(b)<1{return 0,0,ErrInvalidDraft};switch b[0]{case 0xfd:if len(b)<3{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint16(b[1:3])),3,nil;case 0xfe:if len(b)<5{return 0,0,ErrInvalidDraft};return uint64(binary.LittleEndian.Uint32(b[1:5])),5,nil;case 0xff:if len(b)<9{return 0,0,ErrInvalidDraft};return binary.LittleEndian.Uint64(b[1:9]),9,nil;default:return uint64(b[0]),1,nil}}
+func readCompactSize(b []byte) (uint64, int, error) {
+	if len(b) < 1 {
+		return 0, 0, ErrInvalidDraft
+	}
+	switch b[0] {
+	case 0xfd:
+		if len(b) < 3 {
+			return 0, 0, ErrInvalidDraft
+		}
+		n := uint64(binary.LittleEndian.Uint16(b[1:3]))
+		if n < 0xfd {
+			return 0, 0, ErrInvalidDraft
+		}
+		return n, 3, nil
+	case 0xfe:
+		if len(b) < 5 {
+			return 0, 0, ErrInvalidDraft
+		}
+		n := binary.LittleEndian.Uint32(b[1:5])
+		if n <= math.MaxUint16 {
+			return 0, 0, ErrInvalidDraft
+		}
+		return uint64(n), 5, nil
+	case 0xff:
+		if len(b) < 9 {
+			return 0, 0, ErrInvalidDraft
+		}
+		n := binary.LittleEndian.Uint64(b[1:9])
+		if n <= math.MaxUint32 {
+			return 0, 0, ErrInvalidDraft
+		}
+		return n, 9, nil
+	default:
+		return uint64(b[0]), 1, nil
+	}
+}
 
 
 // NewAdapter constructs the complete Bitcoin ChainAdapter using the shared

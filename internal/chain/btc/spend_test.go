@@ -123,3 +123,42 @@ func TestFinalizeAssemblesAndVerifiesP2WPKHWitness(t *testing.T) {
 }
 
 func jsonMarshalDraft(d spendDraft)([]byte,error){return json.Marshal(d)}
+
+
+func TestReadCompactSizeRejectsNonCanonicalEncodings(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{name: "fd encodes a one-byte value", raw: []byte{0xfd, 0xfc, 0x00}},
+		{name: "fe encodes a two-byte value", raw: []byte{0xfe, 0xff, 0xff, 0x00, 0x00}},
+		{name: "ff encodes a four-byte value", raw: []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := readCompactSize(tt.raw); !errors.Is(err, ErrInvalidDraft) {
+				t.Fatalf("readCompactSize(%x) error = %v, want ErrInvalidDraft", tt.raw, err)
+			}
+		})
+	}
+}
+
+func TestReadCompactSizeAcceptsCanonicalBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []byte
+		want uint64
+	}{
+		{name: "fd minimum", raw: []byte{0xfd, 0xfd, 0x00}, want: 0xfd},
+		{name: "fe minimum", raw: []byte{0xfe, 0x00, 0x00, 0x01, 0x00}, want: 0x10000},
+		{name: "ff minimum", raw: []byte{0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, want: 0x100000000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, used, err := readCompactSize(tt.raw)
+			if err != nil || got != tt.want || used != len(tt.raw) {
+				t.Fatalf("readCompactSize(%x) = %d, %d, %v; want %d, %d, nil", tt.raw, got, used, err, tt.want, len(tt.raw))
+			}
+		})
+	}
+}
