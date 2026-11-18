@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -524,4 +525,103 @@ func TestDeleteWalletRestoresKeystoreWhenDatabaseDeleteFails(t *testing.T) {
 		t.Fatalf("keystore was not restored: %v", err)
 	}
 	seed.Wipe()
+}
+
+func newSnapshotLockTestService(t *testing.T, dataMu *sync.RWMutex) (*service.Service, domain.Wallet) {
+	t.Helper()
+	ctx := context.Background()
+	store := testkit.NewMemoryStore()
+	wallet := domain.Wallet{
+		PublicWallet: domain.PublicWallet{
+			ID: "wallet-lock-test", Name: "Lock test", BTCXpub: "tpub-test",
+			ETHAddress: "0x1111111111111111111111111111111111111111",
+			TronAddress: "T1111111111111111111111111111111111",
+		},
+		KeystoreID: "wallet-lock-test",
+	}
+	if err := store.Wallets().Create(ctx, wallet); err != nil {
+		t.Fatal(err)
+	}
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network: domain.NetworkBitcoin, Snapshot: ports.Snapshot{Asset: domain.BTC},
+	})
+	ks := testkit.NewFakeKeystore(testkit.FakeKeystoreOptions{
+		Password: []byte("correct horse battery staple"),
+		PublicKeys: ports.PublicKeys{
+			BTCXpub: wallet.BTCXpub, ETHAddress: wallet.ETHAddress, TronAddress: wallet.TronAddress,
+		},
+	})
+	svc, err := service.New(store, ks, []ports.ChainAdapter{chain}, service.WithDataLock(dataMu))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, wallet
+}
+
+func TestRefreshWalletWaitsForBackupSnapshotLock(t *testing.T) {
+	var dataMu sync.RWMutex
+	svc, wallet := newSnapshotLockTestService(t, &dataMu)
+	dataMu.RLock()
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := svc.RefreshWallet(context.Background(), wallet.ID, domain.BTC)
+		done <- err
+	}()
+	<-started
+	select {
+	case err := <-done:
+		dataMu.RUnlock()
+		t.Fatalf("refresh completed while backup held the snapshot lock: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	dataMu.RUnlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("refresh after backup lock release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not resume after backup released the snapshot lock")
+	}
+}
+
+func TestRetiredServiceRejectsOperationWaitingForRestore(t *testing.T) {
+	var dataMu sync.RWMutex
+	svc, wallet := newSnapshotLockTestService(t, &dataMu)
+	dataMu.Lock()
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := svc.RefreshWallet(context.Background(), wallet.ID, domain.BTC)
+		done <- err
+	}()
+	<-started
+	select {
+	case err := <-done:
+		dataMu.Unlock()
+		t.Fatalf("operation passed the restore lock: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	svc.Retire()
+	dataMu.Unlock()
+	select {
+	case err := <-done:
+		if !errors.Is(err, service.ErrServiceClosed) {
+			t.Fatalf("expected retired service error, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("operation did not leave the restore lock")
+	}
+
+	oldPassword := secret.FromString("old password")
+	newPassword := secret.FromString("new password")
+	if err := svc.ChangePassword(context.Background(), oldPassword, newPassword); !errors.Is(err, service.ErrServiceClosed) {
+		t.Fatalf("expected retired service error from password change, got %v", err)
+	}
+	if !oldPassword.IsEmpty() || !newPassword.IsEmpty() {
+		t.Fatal("password buffers were not wiped when the service was retired")
+	}
 }

@@ -7,5 +7,12 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev:wails",
   "frontend:dev:serverUrl": "auto",
-  "wailsjsdir": "frontend"
+  "wailsjsdir": "frontend",
+  "info": {
+    "companyName": "24DSO-lab",
+    "productName": "Wallet",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 24DSO-lab",
+    "comments": "Self-custody cryptocurrency wallet"
+  }
 }

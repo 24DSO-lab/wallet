@@ -72,7 +72,9 @@ type App struct {
 	pendingMnemonic          secret.Bytes
 	pendingWalletName        string
 	pendingChallengePositions []int
-	pendingWalletExpires     time.Time
+	pendingWalletExpires      time.Time
+	pendingWalletInFlight     bool
+	pendingWalletCancelRequested bool
 }
 
 // New preserves the Wails startup contract. Production startup should use
@@ -113,8 +115,20 @@ func (a *App) context() context.Context {
 	return a.ctx
 }
 
+func (a *App) currentService() *service.Service {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.svc
+}
+
+func (a *App) activeProfile() domain.Profile {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.profile
+}
+
 func (a *App) ready() error {
-	if a.svc == nil {
+	if a.currentService() == nil {
 		return errors.New("app_not_configured")
 	}
 	return nil
@@ -165,7 +179,7 @@ func (a *App) GetSession() (SessionDTO, error) {
 	if err := a.ready(); err != nil {
 		return SessionDTO{}, err
 	}
-	wallets, err := a.svc.ListWallets(a.context())
+	wallets, err := a.currentService().ListWallets(a.context())
 	if err != nil {
 		return SessionDTO{}, safeError(err)
 	}
@@ -186,7 +200,7 @@ func (a *App) Unlock(password string) error {
 	if password == "" {
 		return errors.New("invalid_input")
 	}
-	if err := a.svc.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
+	if err := a.currentService().VerifyPassword(a.context(), secret.FromString(password)); err != nil {
 		return safeError(err)
 	}
 	a.mu.Lock()
@@ -211,6 +225,9 @@ func (a *App) Lock() {
 	a.pendingWalletName = ""
 	a.pendingChallengePositions = nil
 	a.pendingWalletExpires = time.Time{}
+	if a.pendingWalletInFlight {
+		a.pendingWalletCancelRequested = true
+	}
 }
 
 // ListWallets returns public wallet metadata and cached balances.
@@ -221,13 +238,13 @@ func (a *App) ListWallets() ([]WalletDTO, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return nil, err
 	}
-	wallets, err := a.svc.ListWallets(a.context())
+	wallets, err := a.currentService().ListWallets(a.context())
 	if err != nil {
 		return nil, safeError(err)
 	}
 	out := make([]WalletDTO, 0, len(wallets))
 	for _, w := range wallets {
-		balances, err := a.svc.GetBalances(a.context(), w.ID)
+		balances, err := a.currentService().GetBalances(a.context(), w.ID)
 		if err != nil {
 			return nil, safeError(err)
 		}
@@ -251,7 +268,7 @@ func (a *App) PrepareWallet(name string, words int) (PrepareWalletDTO, error) {
 	if name == "" || (words != 12 && words != 24) {
 		return PrepareWalletDTO{}, domain.NewError(domain.CodeInvalidInput, errors.New("invalid wallet name or mnemonic length"))
 	}
-	mnemonic, err := a.svc.NewMnemonic(words)
+	mnemonic, err := a.currentService().NewMnemonic(words)
 	if err != nil {
 		return PrepareWalletDTO{}, safeError(err)
 	}
@@ -262,11 +279,18 @@ func (a *App) PrepareWallet(name string, words int) (PrepareWalletDTO, error) {
 	}
 
 	a.mu.Lock()
+	if a.pendingWalletInFlight {
+		a.mu.Unlock()
+		mnemonic.Wipe()
+		return PrepareWalletDTO{}, errors.New("draft_expired_or_in_use")
+	}
 	a.pendingMnemonic.Wipe()
 	a.pendingMnemonic = mnemonic
 	a.pendingWalletName = name
 	a.pendingChallengePositions = positions
 	a.pendingWalletExpires = time.Now().Add(5 * time.Minute)
+	a.pendingWalletInFlight = false
+	a.pendingWalletCancelRequested = false
 	a.mu.Unlock()
 	a.touch()
 
@@ -290,23 +314,17 @@ func (a *App) ConfirmCreateWallet(name, password, passphrase string, positions [
 		return WalletDTO{}, err
 	}
 
-	a.mu.Lock()
-	if a.pendingMnemonic.IsEmpty() || time.Now().After(a.pendingWalletExpires) {
-		a.pendingMnemonic.Wipe()
-		a.pendingWalletName = ""
-		a.pendingChallengePositions = nil
-		a.pendingWalletExpires = time.Time{}
-		a.mu.Unlock()
-		return WalletDTO{}, domain.NewError(domain.CodeDraftExpired, errors.New("pending wallet creation expired"))
+	pending, expected, err := a.beginPendingWalletConfirmation(name)
+	if err != nil {
+		return WalletDTO{}, err
 	}
-	if name != a.pendingWalletName {
-		a.mu.Unlock()
-		return WalletDTO{}, domain.NewError(domain.CodeInvalidInput, errors.New("wallet name changed during creation"))
-	}
-	pending := a.pendingMnemonic.Clone()
-	expected := append([]int(nil), a.pendingChallengePositions...)
-	a.mu.Unlock()
 	defer pending.Wipe()
+	completed := false
+	defer func() {
+		if !completed {
+			a.finishPendingWalletConfirmation(false)
+		}
+	}()
 
 	words := bytes.Fields(pending.Expose())
 	if len(positions) != len(expected) || len(answers) != len(expected) {
@@ -325,31 +343,74 @@ func (a *App) ConfirmCreateWallet(name, password, passphrase string, positions [
 		}
 	}
 
-	wallet, err := a.svc.ImportWallet(a.context(), name, pending.Clone(), ports.Secrets{
+	wallet, err := a.currentService().ImportWallet(a.context(), name, pending.Clone(), ports.Secrets{
 		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
 	})
 	if err != nil {
 		return WalletDTO{}, safeError(err)
 	}
-	a.mu.Lock()
-	a.pendingMnemonic.Wipe()
-	a.pendingWalletName = ""
-	a.pendingChallengePositions = nil
-	a.pendingWalletExpires = time.Time{}
-	a.mu.Unlock()
+	a.finishPendingWalletConfirmation(true)
+	completed = true
 	a.touch()
 
-	balances, err := a.svc.GetBalances(a.context(), wallet.ID)
+	balances, err := a.currentService().GetBalances(a.context(), wallet.ID)
 	if err != nil {
 		return WalletDTO{}, safeError(err)
 	}
 	return walletDTO(wallet, balances), nil
 }
 
+// beginPendingWalletConfirmation atomically claims the one-time mnemonic challenge.
+// Only one confirmation may persist a wallet from a pending phrase.
+func (a *App) beginPendingWalletConfirmation(name string) (secret.Bytes, []int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.pendingMnemonic.IsEmpty() || time.Now().After(a.pendingWalletExpires) {
+		a.pendingMnemonic.Wipe()
+		a.pendingWalletName = ""
+		a.pendingChallengePositions = nil
+		a.pendingWalletExpires = time.Time{}
+		return secret.Bytes{}, nil, domain.NewError(domain.CodeDraftExpired, errors.New("pending wallet creation expired"))
+	}
+	if a.pendingWalletInFlight {
+		return secret.Bytes{}, nil, errors.New("draft_expired_or_in_use")
+	}
+	a.pendingWalletCancelRequested = false
+	if name != a.pendingWalletName {
+		return secret.Bytes{}, nil, domain.NewError(domain.CodeInvalidInput, errors.New("wallet name changed during creation"))
+	}
+	a.pendingWalletInFlight = true
+	return a.pendingMnemonic.Clone(), append([]int(nil), a.pendingChallengePositions...), nil
+}
+
+// finishPendingWalletConfirmation releases a failed claim for retry or wipes
+// the phrase after a successful persistence.
+func (a *App) finishPendingWalletConfirmation(success bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.pendingWalletInFlight {
+		return
+	}
+	cancelRequested := a.pendingWalletCancelRequested
+	a.pendingWalletCancelRequested = false
+	a.pendingWalletInFlight = false
+	if success || cancelRequested {
+		a.pendingMnemonic.Wipe()
+		a.pendingWalletName = ""
+		a.pendingChallengePositions = nil
+		a.pendingWalletExpires = time.Time{}
+	}
+}
+
 // CancelCreateWallet wipes an uncommitted mnemonic when the user leaves the wizard.
 func (a *App) CancelCreateWallet() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.pendingWalletInFlight {
+		a.pendingWalletCancelRequested = true
+		return
+	}
+	a.pendingWalletCancelRequested = false
 	a.pendingMnemonic.Wipe()
 	a.pendingWalletName = ""
 	a.pendingChallengePositions = nil
@@ -391,11 +452,11 @@ func (a *App) ImportWallet(name, mnemonic, password, passphrase string) (WalletD
 	if strings.TrimSpace(mnemonic) == "" {
 		return WalletDTO{}, domain.NewError(domain.CodeInvalidInput, errors.New("mnemonic is required"))
 	}
-	w, err := a.svc.ImportWallet(a.context(), name, secret.FromString(mnemonic), ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
+	w, err := a.currentService().ImportWallet(a.context(), name, secret.FromString(mnemonic), ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	if err != nil {
 		return WalletDTO{}, safeError(err)
 	}
-	balances, err := a.svc.GetBalances(a.context(), w.ID)
+	balances, err := a.currentService().GetBalances(a.context(), w.ID)
 	if err != nil {
 		return WalletDTO{}, safeError(err)
 	}
@@ -417,7 +478,7 @@ func (a *App) ChangePassword(oldPassword, newPassword string) error {
 	if err := validatePassword(newPassword); err != nil {
 		return err
 	}
-	if err := a.svc.ChangePassword(a.context(), secret.FromString(oldPassword), secret.FromString(newPassword)); err != nil {
+	if err := a.currentService().ChangePassword(a.context(), secret.FromString(oldPassword), secret.FromString(newPassword)); err != nil {
 		return safeError(err)
 	}
 	a.touch()
@@ -433,7 +494,7 @@ func (a *App) RevealSeed(id, password, passphrase string) (string, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return "", err
 	}
-	mnemonic, err := a.svc.RevealSeed(a.context(), id, ports.Secrets{
+	mnemonic, err := a.currentService().RevealSeed(a.context(), id, ports.Secrets{
 		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
 	})
 	if err != nil {
@@ -451,7 +512,7 @@ func (a *App) RenameWallet(id, name string) error {
 	if err := a.requireUnlocked(); err != nil {
 		return err
 	}
-	if err := a.svc.RenameWallet(a.context(), id, name); err != nil {
+	if err := a.currentService().RenameWallet(a.context(), id, name); err != nil {
 		return safeError(err)
 	}
 	return nil
@@ -464,7 +525,7 @@ func (a *App) DeleteWallet(id, confirmedName, password, passphrase string) error
 	if err := a.requireUnlocked(); err != nil {
 		return err
 	}
-	if err := a.svc.DeleteWallet(a.context(), id, confirmedName, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)}); err != nil {
+	if err := a.currentService().DeleteWallet(a.context(), id, confirmedName, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)}); err != nil {
 		return safeError(err)
 	}
 	return nil
@@ -489,7 +550,7 @@ func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 		ctx, cancel = context.WithTimeout(ctx, btcReceiveLookupTimeout)
 		defer cancel()
 	}
-	address, err := a.svc.GetReceiveAddress(ctx, id, domainAsset)
+	address, err := a.currentService().GetReceiveAddress(ctx, id, domainAsset)
 	if err != nil {
 		return "", safeError(err)
 	}
@@ -513,16 +574,16 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 	}
 	// Refresh the status of locally retained signed transactions before
 	// returning cached history. Provider failures do not hide existing history.
-	_, _ = a.svc.ReconcilePending(a.context())
-	txs, err := a.svc.GetHistory(a.context(), id, domainAsset)
+	_, _ = a.currentService().ReconcilePending(a.context())
+	txs, err := a.currentService().GetHistory(a.context(), id, domainAsset)
 	if err != nil {
 		return nil, safeError(err)
 	}
 	out := make([]TxDTO, 0, len(txs))
 	for _, tx := range txs {
 		dto := txDTO(tx)
-		dto.CanReplace = a.svc.HasRBF(a.context(), id, tx.TxID)
-		dto.ExplorerURL = transactionExplorerURL(a.profile, tx)
+		dto.CanReplace = a.currentService().HasRBF(a.context(), id, tx.TxID)
+		dto.ExplorerURL = transactionExplorerURL(a.activeProfile(), tx)
 		out = append(out, dto)
 	}
 	return out, nil
@@ -547,7 +608,7 @@ func (a *App) RefreshWallet(id, asset string) (BalanceDTO, error) {
 		ctx, cancel = context.WithTimeout(ctx, btcReceiveAddressTimeout)
 		defer cancel()
 	}
-	snapshot, err := a.svc.RefreshWallet(ctx, id, da)
+	snapshot, err := a.currentService().RefreshWallet(ctx, id, da)
 	if err != nil {
 		return BalanceDTO{}, safeError(err)
 	}
@@ -571,7 +632,7 @@ func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, 
 		return QuoteDTO{}, safeError(err)
 	}
 	intent := domain.SendIntent{Wallet: domain.PublicWallet{ID: walletID}, Asset: da, To: recipient, Amount: units}
-	prepared, err := a.svc.PrepareSend(a.context(), intent)
+	prepared, err := a.currentService().PrepareSend(a.context(), intent)
 	if err != nil {
 		return QuoteDTO{}, safeError(err)
 	}
@@ -591,7 +652,7 @@ func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, 
 func (a *App) PrepareRBF(walletID, txid string) (QuoteDTO, error) {
 	if err := a.ready(); err != nil { return QuoteDTO{}, err }
 	if err := a.requireUnlocked(); err != nil { return QuoteDTO{}, err }
-	replacement, err := a.svc.PrepareRBF(a.context(), walletID, domain.TxID(txid))
+	replacement, err := a.currentService().PrepareRBF(a.context(), walletID, domain.TxID(txid))
 	if err != nil { return QuoteDTO{}, safeError(err) }
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil { return QuoteDTO{}, errors.New("internal") }
@@ -629,7 +690,7 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	var txid domain.TxID
 	var err error
 	secrets := ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)}
-	if draft.replacement != nil { txid, err = a.svc.ConfirmRBF(a.context(), draft.walletID, *draft.replacement, secrets) } else { txid, err = a.svc.ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, secrets) }
+	if draft.replacement != nil { txid, err = a.currentService().ConfirmRBF(a.context(), draft.walletID, *draft.replacement, secrets) } else { txid, err = a.currentService().ConfirmSend(a.context(), draft.walletID, draft.intent, draft.prepared, secrets) }
 	a.mu.Lock()
 	if err != nil && txid == "" && domain.CodeOf(err) != domain.CodeDuplicateSend {
 		// Failures before persistence are safe to retry, except when another
@@ -799,7 +860,7 @@ func (a *App) CreateBackup(password string) (bool, error) {
 	if err := a.requireUnlocked(); err != nil {
 		return false, err
 	}
-	if err := a.svc.VerifyPassword(a.context(), secret.FromString(password)); err != nil {
+	if err := a.currentService().VerifyPassword(a.context(), secret.FromString(password)); err != nil {
 		return false, safeError(err)
 	}
 	a.mu.Lock()

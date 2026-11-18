@@ -41,6 +41,7 @@ type Runtime struct {
 	App *app.App
 
 	mu       sync.Mutex
+	dataMu   sync.RWMutex
 	baseDir  string
 	secretPath string
 	providerKeyConfigured bool
@@ -228,7 +229,7 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		_ = db.Close()
 		return profileRuntime{}, fmt.Errorf("open encrypted keystore: %w", err)
 	}
-	svc, err := service.New(db, ks, []ports.ChainAdapter{btcAdapter, ethAdapter, tronAdapter}, service.WithLogger(r.logger))
+	svc, err := service.New(db, ks, []ports.ChainAdapter{btcAdapter, ethAdapter, tronAdapter}, service.WithLogger(r.logger), service.WithDataLock(&r.dataMu))
 	if err != nil {
 		_ = db.Close()
 		return profileRuntime{}, fmt.Errorf("construct wallet service: %w", err)
@@ -277,6 +278,8 @@ func (r *Runtime) switchProfile(ctx context.Context, profile domain.Profile) (*s
 func (r *Runtime) createBackup(ctx context.Context, destination string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.dataMu.RLock()
+	defer r.dataMu.RUnlock()
 	current, ok := r.profiles[r.active]
 	if !ok || current.backup == nil {
 		return errors.New("backup service is unavailable")
@@ -293,6 +296,9 @@ func (r *Runtime) createBackup(ctx context.Context, destination string) error {
 func (r *Runtime) restoreBackup(ctx context.Context, archivePath string, password secret.Bytes) (*service.Service, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.dataMu.Lock()
+	defer r.dataMu.Unlock()
+	recoveryCtx := context.WithoutCancel(ctx)
 	profile := r.active
 	current, ok := r.profiles[profile]
 	if !ok || current.backup == nil {
@@ -303,11 +309,14 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string, passwor
 			return current.service, fmt.Errorf("close database before restore: %w", err)
 		}
 	}
+	if current.service != nil {
+		current.service.Retire()
+	}
 	delete(r.profiles, profile)
 
 	result, err := current.backup.Restore(ctx, archivePath, password)
 	if err != nil {
-		rebuilt, buildErr := r.build(ctx, profile)
+		rebuilt, buildErr := r.build(recoveryCtx, profile)
 		if buildErr == nil {
 			r.profiles[profile] = rebuilt
 			return rebuilt.service, err
@@ -315,7 +324,7 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string, passwor
 		return nil, errors.Join(err, fmt.Errorf("reopen existing wallet after failed restore: %w", buildErr))
 	}
 
-	rebuilt, err := r.build(ctx, profile)
+	rebuilt, err := r.build(recoveryCtx, profile)
 	if err != nil {
 		if result.PreviousDir == "" {
 			return nil, fmt.Errorf("open restored wallet; no previous profile data was available for rollback: %w", err)
@@ -326,7 +335,7 @@ func (r *Runtime) restoreBackup(ctx context.Context, archivePath string, passwor
 				fmt.Errorf("rollback to previous wallet failed; recovery data retained: %w", rollbackErr),
 			)
 		}
-		previous, reopenErr := r.build(ctx, profile)
+		previous, reopenErr := r.build(recoveryCtx, profile)
 		if reopenErr != nil {
 			return nil, errors.Join(
 				fmt.Errorf("open restored wallet: %w", err),
@@ -347,7 +356,12 @@ func (r *Runtime) Shutdown(ctx context.Context) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.dataMu.Lock()
+	defer r.dataMu.Unlock()
 	for profile, resources := range r.profiles {
+		if resources.service != nil {
+			resources.service.Retire()
+		}
 		if resources.db != nil {
 			if err := resources.db.Close(); err != nil {
 				r.logger.Error("close profile database", "profile", profile, "error", err)

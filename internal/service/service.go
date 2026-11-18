@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/24DSO-lab/wallet/internal/config"
@@ -24,6 +25,7 @@ var (
 	ErrNilStore     = errors.New("service: store is required")
 	ErrNilKeystore  = errors.New("service: keystore is required")
 	ErrChainMissing = errors.New("service: chain adapter is not configured")
+	ErrServiceClosed = errors.New("service: profile service is retired")
 )
 
 // Option configures a Service. Options are applied only during construction.
@@ -33,6 +35,15 @@ type options struct {
 	logger *slog.Logger
 	now    func() time.Time
 	newID  func() (string, error)
+	dataMu *sync.RWMutex
+}
+
+// WithDataLock shares the runtime data lock with backup and restore. Mutations
+// spanning the encrypted keystore and public database take the write lock.
+func WithDataLock(mu *sync.RWMutex) Option {
+	return func(o *options) {
+		o.dataMu = mu
+	}
 }
 
 // WithLogger sets the structured logger. A discard logger is used by default.
@@ -72,6 +83,8 @@ type Service struct {
 	log         *slog.Logger
 	now         func() time.Time
 	newID       func() (string, error)
+	dataMu      *sync.RWMutex
+	closed      atomic.Bool
 	lifecycle   sync.Mutex
 	sendMu      sync.Mutex // serializes preparation/confirmation around unresolved broadcasts
 	reconcileMu sync.Mutex // prevents duplicate status reconciliation of the same pending records
@@ -107,12 +120,44 @@ func New(st ports.Store, ks ports.Keystore, chains []ports.ChainAdapter, opts ..
 		}
 		adapters[n] = chain
 	}
-	return &Service{store: st, keystore: ks, chains: adapters, log: o.logger, now: o.now, newID: o.newID}, nil
+	return &Service{store: st, keystore: ks, chains: adapters, log: o.logger, now: o.now, newID: o.newID, dataMu: o.dataMu}, nil
 }
 
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func (s *Service) lockDataRead() (func(), error) {
+	unlock := func() {}
+	if s.dataMu != nil {
+		s.dataMu.RLock()
+		unlock = s.dataMu.RUnlock
+	}
+	if s.closed.Load() {
+		unlock()
+		return nil, ErrServiceClosed
+	}
+	return unlock, nil
+}
+
+func (s *Service) lockDataWrite() (func(), error) {
+	unlock := func() {}
+	if s.dataMu != nil {
+		s.dataMu.Lock()
+		unlock = s.dataMu.Unlock
+	}
+	if s.closed.Load() {
+		unlock()
+		return nil, ErrServiceClosed
+	}
+	return unlock, nil
+}
+
+// Retire prevents new operations from using this profile after its database
+// has been replaced or closed. The composition root must hold dataMu exclusively.
+func (s *Service) Retire() {
+	s.closed.Store(true)
+}
 
 func randomID() (string, error) {
 	var raw [16]byte
@@ -124,6 +169,12 @@ func randomID() (string, error) {
 
 // ListWallets returns public wallet records in the repository's display order.
 func (s *Service) ListWallets(ctx context.Context) ([]domain.Wallet, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlockData()
+
 	if err := ctx.Err(); err != nil {
 		return nil, contextError(err)
 	}
@@ -133,6 +184,12 @@ func (s *Service) ListWallets(ctx context.Context) ([]domain.Wallet, error) {
 // NewMnemonic generates an unpersisted BIP-39 phrase for the two-phase
 // desktop creation flow. The caller owns the returned secret and must wipe it.
 func (s *Service) NewMnemonic(words int) (secret.Bytes, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return secret.Bytes{}, lockErr
+	}
+	defer unlockData()
+
 	if words != 12 && words != 24 {
 		return secret.Bytes{}, domain.NewError(domain.CodeInvalidInput, errors.New("mnemonic length must be 12 or 24 words"))
 	}
@@ -143,6 +200,13 @@ func (s *Service) NewMnemonic(words int) (secret.Bytes, error) {
 // secret.Bytes value. The caller owns the returned secret and MUST call Wipe.
 // Password and passphrase are consumed and wiped by this method on every path.
 func (s *Service) CreateWallet(ctx context.Context, name string, words int, sec ports.Secrets) (domain.Wallet, secret.Bytes, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return domain.Wallet{}, secret.Bytes{}, lockErr
+	}
+	defer unlockData()
+
 	defer wipeSecrets(sec)
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -178,6 +242,14 @@ func (s *Service) CreateWallet(ctx context.Context, name string, words int, sec 
 // ImportWallet imports a BIP-39 mnemonic. Ownership of mnemonic and sec is
 // transferred to this call; all secret buffers are wiped before it returns.
 func (s *Service) ImportWallet(ctx context.Context, name string, mnemonic secret.Bytes, sec ports.Secrets) (domain.Wallet, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		mnemonic.Wipe()
+		wipeSecrets(sec)
+		return domain.Wallet{}, lockErr
+	}
+	defer unlockData()
+
 	defer mnemonic.Wipe()
 	defer wipeSecrets(sec)
 	name = strings.TrimSpace(name)
@@ -258,6 +330,13 @@ func (s *Service) removeKeystoreFile(ctx context.Context, id string, password se
 // under the same wallet ID before the error is returned. The mnemonic and all
 // temporary secret copies are wiped on every path.
 func (s *Service) DeleteWallet(ctx context.Context, id, confirmedName string, sec ports.Secrets) error {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return lockErr
+	}
+	defer unlockData()
+
 	defer wipeSecrets(sec)
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(confirmedName) == "" {
 		return domain.NewError(domain.CodeInvalidInput, errors.New("wallet id and confirmation name are required"))
@@ -333,6 +412,12 @@ func cloneSecrets(sec ports.Secrets) ports.Secrets {
 
 // RenameWallet changes only the public display name.
 func (s *Service) RenameWallet(ctx context.Context, id, name string) error {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlockData()
+
 	name = strings.TrimSpace(name)
 	if id == "" || name == "" {
 		return domain.NewError(domain.CodeInvalidInput, errors.New("wallet id and name are required"))
@@ -342,6 +427,13 @@ func (s *Service) RenameWallet(ctx context.Context, id, name string) error {
 
 // VerifyPassword verifies the application password without retaining it.
 func (s *Service) VerifyPassword(ctx context.Context, password secret.Bytes) error {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		password.Wipe()
+		return lockErr
+	}
+	defer unlockData()
+
 	defer password.Wipe()
 	return s.keystore.Verify(ctx, ports.Secrets{Password: password})
 }
@@ -349,6 +441,14 @@ func (s *Service) VerifyPassword(ctx context.Context, password secret.Bytes) err
 // ChangePassword atomically re-encrypts all keystore files. Both inputs are
 // consumed and wiped by this method.
 func (s *Service) ChangePassword(ctx context.Context, oldPassword, newPassword secret.Bytes) error {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		oldPassword.Wipe()
+		newPassword.Wipe()
+		return lockErr
+	}
+	defer unlockData()
+
 	defer oldPassword.Wipe()
 	defer newPassword.Wipe()
 	return s.keystore.ChangePassword(ctx, oldPassword, newPassword)
@@ -356,6 +456,12 @@ func (s *Service) ChangePassword(ctx context.Context, oldPassword, newPassword s
 
 // GetReceiveAddress returns the next unused address for the selected asset.
 func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset domain.Asset) (domain.Address, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		return domain.Address{}, lockErr
+	}
+	defer unlockData()
+
 	info, ok := asset.Info()
 	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
 		return domain.Address{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
@@ -405,6 +511,12 @@ func (s *Service) GetReceiveAddress(ctx context.Context, walletID string, asset 
 // balance. Missing cache entries are omitted; callers can distinguish an
 // unrefreshed asset from a zero balance.
 func (s *Service) GetBalances(ctx context.Context, walletID string) (map[domain.Asset]ports.BalanceRecord, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlockData()
+
 	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
 		return nil, err
 	}
@@ -427,6 +539,13 @@ func (s *Service) GetBalances(ctx context.Context, walletID string) (map[domain.
 // The returned secret belongs to the caller and MUST be wiped. Password and
 // passphrase inputs are consumed and wiped by this method.
 func (s *Service) RevealSeed(ctx context.Context, walletID string, sec ports.Secrets) (secret.Bytes, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return secret.Bytes{}, lockErr
+	}
+	defer unlockData()
+
 	defer wipeSecrets(sec)
 	wallet, err := s.store.Wallets().Get(ctx, walletID)
 	if err != nil {
@@ -438,6 +557,12 @@ func (s *Service) RevealSeed(ctx context.Context, walletID string, sec ports.Sec
 // GetHistory returns cached history for one wallet and asset. An empty asset
 // returns all assets, as defined by ports.TransactionRepo.
 func (s *Service) GetHistory(ctx context.Context, walletID string, asset domain.Asset) ([]domain.Tx, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlockData()
+
 	if _, err := s.store.Wallets().Get(ctx, walletID); err != nil {
 		return nil, err
 	}
@@ -451,6 +576,12 @@ func (s *Service) GetHistory(ctx context.Context, walletID string, asset domain.
 // atomically. Provider data is treated as untrusted and must already have been
 // validated by the network adapter.
 func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset domain.Asset) (ports.Snapshot, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		return ports.Snapshot{}, lockErr
+	}
+	defer unlockData()
+
 	info, ok := asset.Info()
 	if !ok || (!asset.IsWalletAsset() && asset != domain.TRX) {
 		return ports.Snapshot{}, domain.NewError(domain.CodeInvalidInput, domain.ErrUnknownAsset)
@@ -535,6 +666,12 @@ func (s *Service) RefreshWallet(ctx context.Context, walletID string, asset doma
 // PrepareSend creates and verifies an unsigned draft. It never asks for a
 // password and never has access to private keys.
 func (s *Service) PrepareSend(ctx context.Context, intent domain.SendIntent) (ports.Prepared, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return ports.Prepared{}, lockErr
+	}
+	defer unlockData()
+
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	if err := intent.Validate(); err != nil {
@@ -592,6 +729,13 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 // can be replaced by fee; ambiguous broadcasts are never blindly retried.
 // Password and passphrase are consumed and wiped by this method.
 func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domain.SendIntent, prepared ports.Prepared, sec ports.Secrets) (domain.TxID, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return "", lockErr
+	}
+	defer unlockData()
+
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	defer wipeSecrets(sec)
@@ -681,6 +825,12 @@ func (s *Service) ConfirmSend(ctx context.Context, walletID string, intent domai
 // remaining records from being checked. The signed Raw payload is never
 // logged or returned.
 func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		return 0, lockErr
+	}
+	defer unlockData()
+
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	pending, err := s.store.PendingTxs().List(ctx)
@@ -796,12 +946,24 @@ func (s *Service) ReconcilePending(ctx context.Context) (int, error) {
 // Settings returns only non-sensitive settings; the repository enforces the
 // sensitive-key filter.
 func (s *Service) Settings(ctx context.Context) (map[string]string, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlockData()
+
 	return s.store.Settings().List(ctx)
 }
 
 // GetSetting reads a setting by its explicit key. Sensitive values should be
 // fetched only by a backend component that needs them, never copied to a DTO.
 func (s *Service) GetSetting(ctx context.Context, key string) (string, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		return "", lockErr
+	}
+	defer unlockData()
+
 	if strings.TrimSpace(key) == "" {
 		return "", domain.NewError(domain.CodeInvalidInput, errors.New("setting key is empty"))
 	}
@@ -810,6 +972,12 @@ func (s *Service) GetSetting(ctx context.Context, key string) (string, error) {
 
 // SetSetting stores a setting. Sensitive keys are still excluded from Settings.
 func (s *Service) SetSetting(ctx context.Context, key, value string) error {
+	unlockData, lockErr := s.lockDataWrite()
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlockData()
+
 	if strings.TrimSpace(key) == "" {
 		return domain.NewError(domain.CodeInvalidInput, errors.New("setting key is empty"))
 	}
