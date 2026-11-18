@@ -296,7 +296,8 @@ func (c *JSONRPC) FeeHistory(ctx context.Context, blocks int, percentiles []floa
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return FeeHistory{}, badResponse(errors.New("eth: malformed fee history"))
 	}
-	if len(r.BaseFeePerGas) == 0 || len(r.BaseFeePerGas) > maxFeeHistoryBlocks+1 || len(r.Reward) > maxFeeHistoryBlocks {
+	if len(r.BaseFeePerGas) != blocks+1 || len(r.Reward) > blocks ||
+		(len(percentiles) > 0 && len(r.Reward) != blocks) {
 		return FeeHistory{}, badResponse(errors.New("eth: fee history has an unexpected size"))
 	}
 	var fh FeeHistory

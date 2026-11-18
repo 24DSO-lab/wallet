@@ -253,6 +253,8 @@ func TestFeeHistory(t *testing.T) {
 		ok(`{"oldestBlock":"0x64","baseFeePerGas":["0x3b9aca00","0x3b9aca01","0x3b9aca02"],"gasUsedRatio":[0.5,0.5],"reward":[["0x3b9aca00"],["0x77359400"]]}`),
 		ok(`{"oldestBlock":"0x64","baseFeePerGas":["0x1","0x2"],"reward":[["0x1","0x2"]]}`),
 		ok(`{"oldestBlock":"0x64","baseFeePerGas":[],"reward":[]}`),
+		ok(`{"oldestBlock":"0x64","baseFeePerGas":["0x1"],"reward":[["0x1"]]}`),
+		ok(`{"oldestBlock":"0x64","baseFeePerGas":["0x1","0x2"],"reward":[]}`),
 	)
 	fh, err := c.FeeHistory(context.Background(), 2, []float64{50})
 	if err != nil {
@@ -270,6 +272,12 @@ func TestFeeHistory(t *testing.T) {
 	}
 	if _, err := c.FeeHistory(context.Background(), 1, []float64{50}); domain.CodeOf(err) != domain.CodeProviderBadResponse {
 		t.Errorf("empty baseFeePerGas: %v", err)
+	}
+	if _, err := c.FeeHistory(context.Background(), 1, []float64{50}); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Errorf("truncated baseFeePerGas: %v", err)
+	}
+	if _, err := c.FeeHistory(context.Background(), 1, []float64{50}); domain.CodeOf(err) != domain.CodeProviderBadResponse {
+		t.Errorf("missing reward row: %v", err)
 	}
 	if _, err := c.FeeHistory(context.Background(), 0, nil); err == nil {
 		t.Error("zero block count accepted")

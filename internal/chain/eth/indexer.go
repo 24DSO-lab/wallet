@@ -3,7 +3,6 @@ package eth
 import (
 	"context"
 	"encoding/hex"
-	"sync"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
