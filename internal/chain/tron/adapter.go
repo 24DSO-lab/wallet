@@ -306,6 +306,73 @@ func (a *Adapter) Verify(p ports.Prepared, in domain.SendIntent) error {
 	return nil
 }
 
+// VerifyLive повторно проверяет баланс, комиссионные ресурсы и цену Energy
+// после пользовательского подтверждения, непосредственно перед подписью.
+// Любое изменение, влияющее на расчёт комиссии, требует пересоздать черновик.
+func (a *Adapter) VerifyLive(ctx context.Context, p ports.Prepared, in domain.SendIntent) error {
+	if err := a.Verify(p, in); err != nil {
+		return err
+	}
+	raw, err := ParseRawTx(p.Draft)
+	if err != nil {
+		return domain.NewError(domain.CodeVerificationFailed, err)
+	}
+	_, amount, err := parseTransferCalldata(raw.Data)
+	if err != nil {
+		return domain.NewError(domain.CodeVerificationFailed, err)
+	}
+	owner, err := ownTron(in.Wallet)
+	if err != nil {
+		return err
+	}
+	balance, err := a.api.TRC20Balance(ctx, raw.Contract, owner)
+	if err != nil {
+		return err
+	}
+	if balance.Cmp(amount) < 0 {
+		return domain.NewError(domain.CodeInsufficientFunds, errors.New("USDT balance changed after transaction preparation"))
+	}
+	energy, err := a.api.EstimateEnergy(ctx, owner, raw.Contract, raw.Data)
+	if err != nil {
+		return err
+	}
+	prices, err := a.api.Prices(ctx)
+	if err != nil {
+		return err
+	}
+	feeLimit, err := feeLimitFor(energy, prices.EnergyFee)
+	if err != nil {
+		return err
+	}
+	if raw.FeeLimit < feeLimit {
+		return domain.NewError(domain.CodeDraftExpired, errors.New("energy price or estimate changed after transaction preparation"))
+	}
+	trx, _, err := a.api.Account(ctx, owner)
+	if err != nil {
+		return err
+	}
+	resources, err := a.api.Resources(ctx, owner)
+	if err != nil {
+		return err
+	}
+	var expectedBurn uint64
+	if energy > resources.Energy {
+		expectedBurn = (energy - resources.Energy) * prices.EnergyFee
+	}
+	bandwidth := uint64(len(p.Draft)) + bandwidthOverhead
+	if bandwidth > resources.FreeBandwidth && bandwidth > resources.StakedBandwidth {
+		expectedBurn += bandwidth * prices.BandwidthFee
+	}
+	liveFee := domain.AmountFromUint64(expectedBurn)
+	if !liveFee.Equal(p.Fee) {
+		return domain.NewError(domain.CodeDraftExpired, errors.New("fee estimate changed after transaction preparation"))
+	}
+	if trx < expectedBurn {
+		return domain.NewError(domain.CodeInsufficientFunds, errors.New("TRX balance is below the current estimated transaction fee"))
+	}
+	return nil
+}
+
 // maxBandwidthBurn это верхняя оценка сжигания TRX на bandwidth (1000 sun
 // за байт при размере до 1 КБ), добавляемая к потолку при проверке показа.
 const maxBandwidthBurn = 1_000_000

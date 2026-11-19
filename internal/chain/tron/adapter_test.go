@@ -657,3 +657,61 @@ func TestNewValidates(t *testing.T) {
 		t.Error("network")
 	}
 }
+
+
+func TestVerifyLiveRejectsChangedNetworkState(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("accept unchanged quote", func(t *testing.T) {
+		f, in := newFake(), testIntent(t, 2_500_000)
+		a := newAdapter(t, f)
+		p, err := a.Prepare(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.VerifyLive(ctx, p, in); err != nil {
+			t.Fatalf("unchanged state rejected: %v", err)
+		}
+	})
+
+	t.Run("reject changed USDT balance", func(t *testing.T) {
+		f, in := newFake(), testIntent(t, 2_500_000)
+		a := newAdapter(t, f)
+		p, err := a.Prepare(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.usdt = big.NewInt(2_000_000)
+		if err := a.VerifyLive(ctx, p, in); domain.CodeOf(err) != domain.CodeInsufficientFunds {
+			t.Fatalf("changed balance should reject, got %v", err)
+		}
+	})
+
+	t.Run("reject changed fee resources", func(t *testing.T) {
+		f, in := newFake(), testIntent(t, 2_500_000)
+		a := newAdapter(t, f)
+		p, err := a.Prepare(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.res.Energy = 0
+		f.res.FreeBandwidth = 0
+		f.res.StakedBandwidth = 0
+		if err := a.VerifyLive(ctx, p, in); domain.CodeOf(err) != domain.CodeDraftExpired {
+			t.Fatalf("changed fee estimate should expire draft, got %v", err)
+		}
+	})
+
+	t.Run("reject fee limit made insufficient by price change", func(t *testing.T) {
+		f, in := newFake(), testIntent(t, 2_500_000)
+		a := newAdapter(t, f)
+		p, err := a.Prepare(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.prices.EnergyFee *= 2
+		if err := a.VerifyLive(ctx, p, in); domain.CodeOf(err) != domain.CodeDraftExpired {
+			t.Fatalf("higher energy price should expire draft, got %v", err)
+		}
+	})
+}
