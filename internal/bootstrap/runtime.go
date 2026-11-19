@@ -68,6 +68,7 @@ func New() (*Runtime, error) {
 		return nil, fmt.Errorf("create application data directory: %w", err)
 	}
 	if runtime.GOOS != "windows" {
+		//nolint:gosec // 0700 is intentional: private app-owned directory permissions.
 		if err := os.Chmod(baseDir, 0o700); err != nil {
 			return nil, fmt.Errorf("secure application data directory: %w", err)
 		}
@@ -164,6 +165,7 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 		return profileRuntime{}, fmt.Errorf("create profile data directory: %w", err)
 	}
 	if runtime.GOOS != "windows" {
+		//nolint:gosec // 0700 is intentional: private profile directory permissions.
 		if err := os.Chmod(cfg.DataDir, 0o700); err != nil {
 			return profileRuntime{}, fmt.Errorf("secure profile data directory: %w", err)
 		}

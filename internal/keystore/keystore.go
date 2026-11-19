@@ -96,6 +96,7 @@ func New(cfg Config) (*Store, error) {
 		return nil, fmt.Errorf("keystore: create directory: %w", err)
 	}
 	if runtime.GOOS != "windows" {
+		//nolint:gosec // 0700 is intentional: private keystore directory permissions.
 		if err := os.Chmod(cfg.Dir, 0o700); err != nil {
 			return nil, fmt.Errorf("keystore: secure directory permissions: %w", err)
 		}

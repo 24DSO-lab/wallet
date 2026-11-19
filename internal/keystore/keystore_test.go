@@ -49,7 +49,7 @@ func TestNewHardensExistingDirectoryPermissions(t *testing.T) {
 	if err := os.Chmod(dir, 0o777); err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(Config{Dir: dir, Profile: domain.ProfileTest, KDF: weak(), Addresses: addrs(domain.ProfileTest)})
+	s, err := New(Config{Dir: dir, Profile: domain.ProfileTest, KDF: weak(), allowWeakKDF: true, Addresses: addrs(domain.ProfileTest)})
 	if err != nil {
 		t.Fatal(err)
 	}
