@@ -38,6 +38,31 @@ const (
 	abandonTron = "TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH"
 )
 
+func TestNewHardensExistingDirectoryPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows permissions are governed by inherited ACLs")
+	}
+	dir := filepath.Join(t.TempDir(), "keystore")
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{Dir: dir, Profile: domain.ProfileTest, KDF: weak(), Addresses: addrs(domain.ProfileTest)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("keystore directory permissions = %04o, want 0700", got)
+	}
+}
+
 func weak() *Params { return &Params{Time: 1, MemoryKiB: 64, Threads: 1} }
 
 func addrs(profile domain.Profile) map[domain.Network]AddressFunc {

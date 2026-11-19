@@ -238,23 +238,42 @@ func TestOpenHardensExistingDatabaseFilePermissions(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wallet.db")
-	if err := os.WriteFile(path, []byte("existing database placeholder"), 0o644); err != nil {
+	// Create a valid SQLite database first; Open must harden permissions on
+	// an existing database without changing or replacing its contents.
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Settings().Set(ctx, "permission-test", "preserved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	db, err := Open(ctx, path)
+	db, err = Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
+	if value, err := db.Settings().Get(ctx, "permission-test"); err != nil || value != "preserved" {
+		t.Fatalf("existing database data was not preserved: value=%q err=%v", value, err)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := info.Mode().Perm(); got != filePerm {
 		t.Fatalf("database permissions = %04o, want %04o", got, filePerm)
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != dirPerm {
+		t.Fatalf("database directory permissions = %04o, want %04o", got, dirPerm)
 	}
 }
 

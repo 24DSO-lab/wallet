@@ -71,8 +71,16 @@ func open(ctx context.Context, path string, migs []migration, opts ...Option) (*
 	}
 	o.readers = max(o.readers, 1)
 
-	if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
+	dataDir := filepath.Dir(path)
+	if err := os.MkdirAll(dataDir, dirPerm); err != nil {
 		return nil, fmt.Errorf("store: create data dir: %w", err)
+	}
+	// Existing app-owned data directories must also be private. Do not alter
+	// ACLs on Windows; its access control is inherited from the user profile.
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dataDir, dirPerm); err != nil {
+			return nil, fmt.Errorf("store: secure data dir permissions: %w", err)
+		}
 	}
 	// База приватная: создаём файл с 0600 до того, как его создаст SQLite.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, filePerm) //nolint:gosec // путь задаёт приложение, не ввод

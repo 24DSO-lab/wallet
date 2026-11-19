@@ -25,6 +25,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime"
 	"sync"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
@@ -93,6 +94,11 @@ func New(cfg Config) (*Store, error) {
 	}
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("keystore: create directory: %w", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(cfg.Dir, 0o700); err != nil {
+			return nil, fmt.Errorf("keystore: secure directory permissions: %w", err)
+		}
 	}
 	s := &Store{
 		dir:       cfg.Dir,

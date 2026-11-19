@@ -66,6 +66,11 @@ func New() (*Runtime, error) {
 	if err := os.MkdirAll(baseDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create application data directory: %w", err)
 	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(baseDir, 0o700); err != nil {
+			return nil, fmt.Errorf("secure application data directory: %w", err)
+		}
+	}
 	instanceLock, err := processlock.Acquire(filepath.Join(baseDir, "wallet.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("acquire wallet instance lock: %w", err)
@@ -156,6 +161,11 @@ func (r *Runtime) build(ctx context.Context, profile domain.Profile) (profileRun
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return profileRuntime{}, fmt.Errorf("create profile data directory: %w", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(cfg.DataDir, 0o700); err != nil {
+			return profileRuntime{}, fmt.Errorf("secure profile data directory: %w", err)
+		}
 	}
 
 	btcClient, err := provider.New(provider.Options{
