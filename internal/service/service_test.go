@@ -651,3 +651,65 @@ func TestPrepareSendDoesNotDeadlockWithSharedDataLock(t *testing.T) {
 		t.Fatal("PrepareSend deadlocked while reconciling pending transactions under shared data lock")
 	}
 }
+
+
+func TestAcceptedPendingTransactionsBlockAccountChainSends(t *testing.T) {
+	tests := []struct {
+		name    string
+		network domain.Network
+		asset   domain.Asset
+		to      string
+	}{
+		{name: "Ethereum ETH", network: domain.NetworkEthereum, asset: domain.ETH, to: "0xrecipient"},
+		{name: "Ethereum USDC", network: domain.NetworkEthereum, asset: domain.USDC, to: "0xrecipient"},
+		{name: "TRON USDT", network: domain.NetworkTron, asset: domain.USDT, to: "Trecipient"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+				Network: tt.network,
+				Prepared: ports.Prepared{Network: tt.network, Asset: tt.asset},
+				Status: ports.TxStatus{State: domain.TxPending, Known: true},
+			})
+			svc, st := testService(t, chain)
+			wallet := createTestWallet(t, svc)
+			pending := ports.PendingTx{
+				TxID: domain.TxID("pending-" + string(tt.network)), WalletID: wallet.ID,
+				Asset: tt.asset, Network: tt.network, Raw: []byte{1}, Draft: []byte{2},
+				BroadcastAccepted: true, CreatedAt: time.Now(),
+			}
+			if err := st.PendingTxs().Put(context.Background(), pending); err != nil {
+				t.Fatal(err)
+			}
+			intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: tt.asset, To: tt.to, Amount: domain.AmountFromUint64(1)}
+			if _, err := svc.PrepareSend(context.Background(), intent); domain.CodeOf(err) != domain.CodeDuplicateSend {
+				t.Fatalf("PrepareSend error = %v, want duplicate_send", err)
+			}
+			if _, err := svc.ConfirmSend(context.Background(), wallet.ID, intent,
+				ports.Prepared{Network: tt.network, Asset: tt.asset}, testSecrets()); domain.CodeOf(err) != domain.CodeDuplicateSend {
+				t.Fatalf("ConfirmSend error = %v, want duplicate_send", err)
+			}
+		})
+	}
+}
+
+func TestAcceptedPendingBitcoinTransactionDoesNotBlockRBFWorkflow(t *testing.T) {
+	chain := testkit.NewFakeChain(testkit.FakeChainOptions{
+		Network: domain.NetworkBitcoin,
+		Prepared: ports.Prepared{Network: domain.NetworkBitcoin, Asset: domain.BTC},
+		Status: ports.TxStatus{State: domain.TxPending, Known: true},
+	})
+	svc, st := testService(t, chain)
+	wallet := createTestWallet(t, svc)
+	pending := ports.PendingTx{
+		TxID: "pending-btc", WalletID: wallet.ID, Asset: domain.BTC, Network: domain.NetworkBitcoin,
+		Raw: []byte{1}, Draft: []byte{2}, BroadcastAccepted: true, CreatedAt: time.Now(),
+	}
+	if err := st.PendingTxs().Put(context.Background(), pending); err != nil {
+		t.Fatal(err)
+	}
+	intent := domain.SendIntent{Wallet: wallet.PublicWallet, Asset: domain.BTC, To: "bc1qrecipient", Amount: domain.AmountFromUint64(1000)}
+	if _, err := svc.PrepareSend(context.Background(), intent); err != nil {
+		t.Fatalf("accepted pending Bitcoin transaction should not block spend preparation: %v", err)
+	}
+}

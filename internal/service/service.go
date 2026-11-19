@@ -716,8 +716,19 @@ func (s *Service) rejectPendingBroadcast(ctx context.Context, walletID string, n
 		return err
 	}
 	for _, tx := range pending {
-		if tx.WalletID == walletID && tx.Network == network && !tx.BroadcastAccepted {
+		if tx.WalletID != walletID || tx.Network != network {
+			continue
+		}
+		if !tx.BroadcastAccepted {
 			return domain.NewError(domain.CodeDuplicateSend, errors.New("wallet has an unresolved broadcast on this network"))
+		}
+		// Account-based chains do not expose a reliable local reservation for
+		// pending token/native outflows. Avoid preparing a second send against
+		// confirmed balances until the first one is finalized. Bitcoin is
+		// excluded: its accepted pending transaction reserves UTXOs and supports
+		// explicit RBF replacement.
+		if network == domain.NetworkEthereum || network == domain.NetworkTron {
+			return domain.NewError(domain.CodeDuplicateSend, errors.New("wallet has an unconfirmed transaction on this network"))
 		}
 	}
 	return nil
