@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/24DSO-lab/wallet/internal/ports"
@@ -77,6 +78,14 @@ func open(ctx context.Context, path string, migs []migration, opts ...Option) (*
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, filePerm) //nolint:gosec // путь задаёт приложение, не ввод
 	if err != nil {
 		return nil, fmt.Errorf("store: create database file: %w", err)
+	}
+	// OpenFile applies perm only when creating a file. Harden an existing
+	// database too; otherwise a previously loosened mode survives every reopen.
+	if runtime.GOOS != "windows" {
+		if err := f.Chmod(filePerm); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("store: secure database file permissions: %w", err)
+		}
 	}
 	if err := f.Close(); err != nil {
 		return nil, fmt.Errorf("store: create database file: %w", err)

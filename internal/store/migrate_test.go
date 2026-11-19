@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -227,6 +229,32 @@ func TestOpenSetsPragmasAndPrivateMode(t *testing.T) {
 	// Читатель не должен уметь писать.
 	if _, err := d.r.ExecContext(ctx, `INSERT INTO setting (key, value) VALUES ('k','v')`); err == nil {
 		t.Error("reader connection accepted a write")
+	}
+}
+
+func TestOpenHardensExistingDatabaseFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows permissions are governed by inherited ACLs")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wallet.db")
+	if err := os.WriteFile(path, []byte("existing database placeholder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != filePerm {
+		t.Fatalf("database permissions = %04o, want %04o", got, filePerm)
 	}
 }
 
