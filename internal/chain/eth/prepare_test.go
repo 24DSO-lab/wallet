@@ -554,3 +554,38 @@ func TestSendIsSafeForConcurrentUse(t *testing.T) {
 		}
 	}
 }
+
+
+func TestVerifyLiveRechecksBalances(t *testing.T) {
+	t.Run("ETH balance changed", func(t *testing.T) {
+		a, rpc, p := prepareETH(t)
+		rpc.balance = new(big.Int).Set(p.Fee.BigInt())
+		if err := a.VerifyLive(context.Background(), p, ethIntent(t)); domain.CodeOf(err) != domain.CodeInsufficientFunds {
+			t.Fatalf("error = %v, want insufficient funds", err)
+		}
+	})
+
+	t.Run("USDC token balance changed", func(t *testing.T) {
+		a, rpc, p := prepareUSDC(t)
+		rpc.callOut = word(1_000_000)
+		if err := a.VerifyLive(context.Background(), p, usdcIntent(t)); domain.CodeOf(err) != domain.CodeInsufficientFunds {
+			t.Fatalf("error = %v, want insufficient funds", err)
+		}
+	})
+
+	t.Run("ETH fee balance changed for USDC", func(t *testing.T) {
+		a, rpc, p := prepareUSDC(t)
+		rpc.balance = new(big.Int).Sub(p.Fee.BigInt(), big.NewInt(1))
+		if err := a.VerifyLive(context.Background(), p, usdcIntent(t)); domain.CodeOf(err) != domain.CodeInsufficientFunds {
+			t.Fatalf("error = %v, want insufficient funds", err)
+		}
+	})
+
+	t.Run("provider balance failure", func(t *testing.T) {
+		a, rpc, p := prepareETH(t)
+		rpc.balErr = errors.New("balance rpc failed")
+		if err := a.VerifyLive(context.Background(), p, ethIntent(t)); !errors.Is(err, rpc.balErr) {
+			t.Fatalf("error = %v, want provider error", err)
+		}
+	})
+}
