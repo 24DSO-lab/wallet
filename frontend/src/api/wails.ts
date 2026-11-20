@@ -1,6 +1,68 @@
-import type{Api,Asset,Profile,PrepareWalletResult,Wallet,AssetCatalogEntry}from'./types'
-type Facade=Record<string,(...args:unknown[])=>Promise<unknown>>
-declare global{interface Window{go?:{app?:{App?:Facade}}}}
-function call(name:string,...args:unknown[]){const fn=window.go?.app?.App?.[name];if(!fn)throw Error('WAILS_METHOD_UNAVAILABLE:'+name);return fn(...args)}
-// DTOs mirror app/dto.go. Amounts and balances remain decimal strings.
-export function wailsApi():Api{return{async assetCatalog(){return await call('GetAssetCatalog') as AssetCatalogEntry[]},async providerSettings(){return await call('GetProviderSettings') as Awaited<ReturnType<Api['providerSettings']>>},async saveEtherscanAPIKey(key){await call('SaveEtherscanAPIKey',key)},async deleteEtherscanAPIKey(){await call('DeleteEtherscanAPIKey')},async session(){return await call('GetSession') as Awaited<ReturnType<Api['session']>>},async keepAlive(){await call('KeepAlive')},async unlock(p){await call('Unlock',p)},async lock(){await call('Lock')},async wallets(){return await call('ListWallets') as Awaited<ReturnType<Api['wallets']>>},async refresh(id,a){return await call('RefreshWallet',id,a) as Awaited<ReturnType<Api['refresh']>>},async create(){throw Error('USE_CREATE_WALLET_OR_IMPORT_WALLET')},async prepareWallet(name,words){return await call('PrepareWallet',name,words) as PrepareWalletResult},async confirmCreateWallet(name,password,passphrase,positions,answers){return await call('ConfirmCreateWallet',name,password,passphrase,positions,answers) as Wallet},async cancelCreateWallet(){await call('CancelCreateWallet')},async importWallet(name,mnemonic,password,passphrase){return await call('ImportWallet',name,mnemonic,password,passphrase) as Wallet},async receive(id,a:Asset){return await call('GetReceiveAddress',id,a) as string},async history(id,a){return await call('GetHistory',id,a??'') as Awaited<ReturnType<Api['history']>>},async prepare(id,a,to,amount){return await call('PrepareSend',id,a,to,amount) as Awaited<ReturnType<Api['prepare']>>},async prepareRBF(walletId,txid){return await call('PrepareRBF',walletId,txid) as Awaited<ReturnType<Api['prepareRBF']>>},async confirm(id,p,phrase){await call('ConfirmSend',id,p,phrase)},async profile(p:Profile){await call('SetProfile',p)},async timeout(n){await call('SetLockTimeout',n)},async rename(id,n){await call('RenameWallet',id,n)},async backup(p){return await call('CreateBackup',p) as boolean},async restoreBackup(p){return await call('RestoreBackup',p) as boolean},async changePassword(oldPassword,newPassword){await call('ChangePassword',oldPassword,newPassword)},async revealSeed(id,password,passphrase){return await call('RevealSeed',id,password,passphrase) as string},async deleteWallet(id,confirmedName,password,passphrase){await call('DeleteWallet',id,confirmedName,password,passphrase)}}}
+import type {
+  Api,
+  AssetCatalogEntry,
+  Balance,
+  PrepareWalletResult,
+  ProviderSettings,
+  Quote,
+  SessionState,
+  Tx,
+  Wallet,
+} from './types'
+
+type Facade = Record<string, (...args: unknown[]) => Promise<unknown>>
+
+declare global {
+  interface Window {
+    go?: { app?: { App?: Facade } }
+  }
+}
+
+// Async on purpose: a missing binding must surface as a rejected promise so
+// callers' `.catch()` chains and try/catch blocks behave the same way.
+async function invoke<T>(method: string, ...args: unknown[]): Promise<T> {
+  const fn = window.go?.app?.App?.[method]
+  if (!fn) throw new Error(`WAILS_METHOD_UNAVAILABLE:${method}`)
+  return (await fn(...args)) as T
+}
+
+/**
+ * Binds the Api contract to the Go facade in app/app.go. DTOs mirror
+ * app/dto.go; amounts and balances stay decimal strings end to end.
+ */
+export function wailsApi(): Api {
+  return {
+    assetCatalog: () => invoke<AssetCatalogEntry[]>('GetAssetCatalog'),
+    session: () => invoke<SessionState>('GetSession'),
+    providerSettings: () => invoke<ProviderSettings>('GetProviderSettings'),
+    saveEtherscanAPIKey: key => invoke<void>('SaveEtherscanAPIKey', key),
+    deleteEtherscanAPIKey: () => invoke<void>('DeleteEtherscanAPIKey'),
+    keepAlive: () => invoke<void>('KeepAlive'),
+    unlock: password => invoke<void>('Unlock', password),
+    lock: () => invoke<void>('Lock'),
+    wallets: () => invoke<Wallet[]>('ListWallets'),
+    refresh: (id, asset) => invoke<Balance>('RefreshWallet', id, asset),
+    // Creation always goes through the verified two-step flow below.
+    create: () => Promise.reject(new Error('USE_CREATE_WALLET_OR_IMPORT_WALLET')),
+    prepareWallet: (name, words) => invoke<PrepareWalletResult>('PrepareWallet', name, words),
+    confirmCreateWallet: (name, password, passphrase, positions, answers) =>
+      invoke<Wallet>('ConfirmCreateWallet', name, password, passphrase, positions, answers),
+    cancelCreateWallet: () => invoke<void>('CancelCreateWallet'),
+    importWallet: (name, mnemonic, password, passphrase) =>
+      invoke<Wallet>('ImportWallet', name, mnemonic, password, passphrase),
+    receive: (id, asset) => invoke<string>('GetReceiveAddress', id, asset),
+    history: (id, asset) => invoke<Tx[]>('GetHistory', id, asset ?? ''),
+    prepare: (id, asset, to, amount) => invoke<Quote>('PrepareSend', id, asset, to, amount),
+    prepareRBF: (walletId, txid) => invoke<Quote>('PrepareRBF', walletId, txid),
+    confirm: (id, password, passphrase) => invoke<void>('ConfirmSend', id, password, passphrase),
+    profile: value => invoke<void>('SetProfile', value),
+    timeout: value => invoke<void>('SetLockTimeout', value),
+    rename: (id, name) => invoke<void>('RenameWallet', id, name),
+    backup: password => invoke<boolean>('CreateBackup', password),
+    restoreBackup: password => invoke<boolean>('RestoreBackup', password),
+    changePassword: (oldPassword, newPassword) => invoke<void>('ChangePassword', oldPassword, newPassword),
+    revealSeed: (id, password, passphrase) => invoke<string>('RevealSeed', id, password, passphrase),
+    deleteWallet: (id, confirmedName, password, passphrase) =>
+      invoke<void>('DeleteWallet', id, confirmedName, password, passphrase),
+  }
+}

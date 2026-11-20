@@ -56,3 +56,19 @@ test('receives, sends and shows a transaction in history on the mock profile', a
   await expect(page.getByText('0.001 · pending')).toBeVisible()
   await expect(page.getByText('tb1qrecipient0000000000000000000000000000000')).toBeVisible()
 })
+
+test('a locked wallet redirects every route to the lock screen', async ({ page }) => {
+  await page.goto('/#/history')
+  await expect(page.getByText('Кошелёк заблокирован')).toBeVisible()
+  await expect(page).toHaveURL(/#\/lock$/)
+})
+
+test('locking returns to the lock screen and hides wallet data', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Пароль').fill('test-password')
+  await page.getByRole('button', { name: 'Разблокировать' }).click()
+  await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeVisible()
+  await page.getByRole('button', { name: /Заблокировать/ }).click()
+  await expect(page.getByText('Кошелёк заблокирован')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeHidden()
+})
