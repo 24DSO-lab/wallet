@@ -29,13 +29,13 @@ func TestWalletDTOIncludesReceiveAssetsBeforeFirstRefresh(t *testing.T) {
 
 func TestSnapshotDTOReportsPartialProviderFailuresWithoutFeeBalance(t *testing.T) {
 	got := snapshotDTO(ports.Snapshot{
-		Asset: domain.USDC,
-		Balance: domain.Balance{Confirmed: domain.AmountFromUint64(42)},
-		FeeAsset: domain.ETH,
-		FeeBalance: domain.AmountFromUint64(99),
-		HistoryError: "provider_unavailable",
+		Asset:           domain.USDC,
+		Balance:         domain.Balance{Confirmed: domain.AmountFromUint64(42)},
+		FeeAsset:        domain.ETH,
+		FeeBalance:      domain.AmountFromUint64(99),
+		HistoryError:    "provider_unavailable",
 		FeeBalanceError: "provider_rate_limited",
-		FetchedAt: time.Date(2026, 11, 17, 4, 0, 0, 0, time.UTC),
+		FetchedAt:       time.Date(2026, 11, 17, 4, 0, 0, 0, time.UTC),
 	})
 	if got.Amount != "42" {
 		t.Fatalf("fresh token balance = %q, want 42", got.Amount)

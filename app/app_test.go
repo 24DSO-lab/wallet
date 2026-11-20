@@ -14,7 +14,7 @@ import (
 
 func TestAssetCatalogUsesProfileAndCoversAllAssets(t *testing.T) {
 	tests := []struct {
-		profile domain.Profile
+		profile                    domain.Profile
 		btc, eth, tron, usdc, usdt string
 	}{
 		{domain.ProfileTest, "Bitcoin testnet4", "Ethereum Sepolia", "TRON Nile", "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"},
@@ -23,12 +23,24 @@ func TestAssetCatalogUsesProfileAndCoversAllAssets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(string(tt.profile), func(t *testing.T) {
 			got, err := NewWithDependencies(Dependencies{Profile: tt.profile}).GetAssetCatalog()
-			if err != nil { t.Fatal(err) }
-			if len(got) != 5 { t.Fatalf("got %d assets, want 5", len(got)) }
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 5 {
+				t.Fatalf("got %d assets, want 5", len(got))
+			}
 			want := []string{"BTC", "ETH", "USDC", "USDT", "TRX"}
-			for i := range want { if got[i].Asset != want[i] { t.Errorf("asset[%d] = %s, want %s", i, got[i].Asset, want[i]) } }
-			if got[0].NetworkName != tt.btc || got[1].NetworkName != tt.eth || got[2].ContractAddress != tt.usdc || got[3].NetworkName != tt.tron || got[3].ContractAddress != tt.usdt { t.Errorf("catalog mismatch: %+v", got) }
-			if got[0].Kind != "native" || got[1].Kind != "native" || got[2].Kind != "token" || got[2].Standard != "ERC-20" || got[3].Kind != "token" || got[3].Standard != "TRC-20" || got[4].Kind != "native" { t.Errorf("asset kind mismatch: %+v", got) }
+			for i := range want {
+				if got[i].Asset != want[i] {
+					t.Errorf("asset[%d] = %s, want %s", i, got[i].Asset, want[i])
+				}
+			}
+			if got[0].NetworkName != tt.btc || got[1].NetworkName != tt.eth || got[2].ContractAddress != tt.usdc || got[3].NetworkName != tt.tron || got[3].ContractAddress != tt.usdt {
+				t.Errorf("catalog mismatch: %+v", got)
+			}
+			if got[0].Kind != "native" || got[1].Kind != "native" || got[2].Kind != "token" || got[2].Standard != "ERC-20" || got[3].Kind != "token" || got[3].Standard != "TRC-20" || got[4].Kind != "native" {
+				t.Errorf("asset kind mismatch: %+v", got)
+			}
 		})
 	}
 }
@@ -142,7 +154,6 @@ func TestTransactionExplorerURLRejectsMissingTransactionID(t *testing.T) {
 	}
 }
 
-
 func TestServiceAndProfileSnapshotsAreSynchronized(t *testing.T) {
 	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
 	services := []*service.Service{{}, {}}
@@ -193,13 +204,12 @@ func TestValidatePasswordMinimumLength(t *testing.T) {
 	}
 }
 
-
 func TestPendingWalletConfirmationIsSingleFlight(t *testing.T) {
 	a := &App{
-		pendingMnemonic: secret.FromString("test mnemonic"),
-		pendingWalletName: "wallet",
+		pendingMnemonic:           secret.FromString("test mnemonic"),
+		pendingWalletName:         "wallet",
 		pendingChallengePositions: []int{1, 4, 8},
-		pendingWalletExpires: time.Now().Add(time.Minute),
+		pendingWalletExpires:      time.Now().Add(time.Minute),
 	}
 	pending, positions, err := a.beginPendingWalletConfirmation("wallet")
 	if err != nil {
@@ -227,10 +237,10 @@ func TestPendingWalletConfirmationIsSingleFlight(t *testing.T) {
 
 func TestCancelCreateWalletDoesNotRaceAnInFlightConfirmation(t *testing.T) {
 	a := &App{
-		pendingMnemonic: secret.FromString("test mnemonic"),
-		pendingWalletName: "wallet",
+		pendingMnemonic:           secret.FromString("test mnemonic"),
+		pendingWalletName:         "wallet",
 		pendingChallengePositions: []int{0, 2, 5},
-		pendingWalletExpires: time.Now().Add(time.Minute),
+		pendingWalletExpires:      time.Now().Add(time.Minute),
 	}
 	pending, _, err := a.beginPendingWalletConfirmation("wallet")
 	if err != nil {
@@ -250,13 +260,12 @@ func TestCancelCreateWalletDoesNotRaceAnInFlightConfirmation(t *testing.T) {
 	}
 }
 
-
 func TestLockKeepsWalletConfirmationClaimUntilOperationFinishes(t *testing.T) {
 	a := &App{
-		pendingMnemonic: secret.FromString("test mnemonic"),
-		pendingWalletName: "wallet",
+		pendingMnemonic:           secret.FromString("test mnemonic"),
+		pendingWalletName:         "wallet",
 		pendingChallengePositions: []int{1, 3, 7},
-		pendingWalletExpires: time.Now().Add(time.Minute),
+		pendingWalletExpires:      time.Now().Add(time.Minute),
 	}
 	pending, _, err := a.beginPendingWalletConfirmation("wallet")
 	if err != nil {
@@ -284,7 +293,6 @@ func TestLockKeepsWalletConfirmationClaimUntilOperationFinishes(t *testing.T) {
 		t.Fatal("lock did not preserve the wipe after the in-flight operation completed")
 	}
 }
-
 
 func TestLockWaitsForInFlightTransactionOperation(t *testing.T) {
 	a := New()
@@ -352,7 +360,6 @@ func TestLockSessionStateCanBeUsedWhileProfileWriteLockIsHeld(t *testing.T) {
 		t.Fatal("profile transition did not lock the session")
 	}
 }
-
 
 func TestLockForRestoreRechecksSessionAfterAcquiringTransactionLock(t *testing.T) {
 	a := NewWithDependencies(Dependencies{Service: &service.Service{}, Profile: domain.ProfileTest})
