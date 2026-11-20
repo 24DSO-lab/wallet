@@ -1,0 +1,20 @@
+import { describe, expect, it } from 'vitest'
+import { sendErrorKey } from './errors'
+
+describe('sendErrorKey', () => {
+  it('maps known Go error codes', () => {
+    expect(sendErrorKey(new Error('invalid_address'))).toBe('send.errors.invalidAddress')
+    expect(sendErrorKey('insufficient_funds')).toBe('send.errors.insufficientFunds')
+    expect(sendErrorKey(new Error('insufficient_fee_coin'))).toBe('send.errors.insufficientFee')
+    expect(sendErrorKey(new Error('duplicate_send'))).toBe('send.duplicate')
+  })
+
+  it('does not confuse insufficient_funds with insufficient_fee_coin', () => {
+    expect(sendErrorKey('insufficient_fee_coin')).not.toBe('send.errors.insufficientFunds')
+  })
+
+  it('falls back for unknown or mock errors', () => {
+    expect(sendErrorKey(new Error('INVALID_SEND'))).toBe('send.invalid')
+    expect(sendErrorKey(undefined, 'x')).toBe('x')
+  })
+})

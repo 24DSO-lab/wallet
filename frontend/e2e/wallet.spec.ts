@@ -72,3 +72,23 @@ test('locking returns to the lock screen and hides wallet data', async ({ page }
   await expect(page.getByText('Кошелёк заблокирован')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeHidden()
 })
+
+test('send form explains invalid input before contacting Go', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Пароль').fill('test-password')
+  await page.getByRole('button', { name: 'Разблокировать' }).click()
+  await page.getByRole('button', { name: 'Открыть →' }).click()
+  await page.getByRole('button', { name: 'Отправить' }).click()
+
+  await page.getByRole('button', { name: 'Проверить перевод' }).click()
+  await expect(page.getByRole('alert')).toHaveText('Укажите адрес получателя.')
+
+  await page.locator('#send-recipient').fill('tb1qrecipient0000000000000000000000000000000')
+  await page.locator('#send-amount').fill('0.123456789')
+  await page.getByRole('button', { name: 'Проверить перевод' }).click()
+  await expect(page.getByRole('alert')).toContainText('не более 8')
+
+  await page.locator('#send-amount').fill('0')
+  await page.getByRole('button', { name: 'Проверить перевод' }).click()
+  await expect(page.getByRole('alert')).toHaveText('Сумма должна быть больше нуля.')
+})

@@ -100,6 +100,20 @@ export const en: typeof ru = {
     amount: 'Amount',
     check: 'Review transfer',
     invalid: 'Check the address and the amount.',
+    recipientRequired: 'Enter the recipient address.',
+    amountInvalid: 'Enter the amount in digits, for example 0.001.',
+    amountZero: 'The amount must be greater than zero.',
+    amountPrecision: 'Too many decimal places: {asset} allows at most {decimals}.',
+    errors: {
+      invalidAddress: 'This address is not valid for the selected network.',
+      invalidAmount: 'Invalid amount.',
+      wrongNetwork: 'The address belongs to another network. Check the network and the asset.',
+      insufficientFunds: 'Insufficient funds, including the fee.',
+      insufficientFee: 'Not enough of the fee coin (ETH for USDC, TRX for USDT).',
+      providerUnavailable: 'The network provider is temporarily unavailable. Try again later.',
+      providerRateLimited: 'Too many requests to the provider. Wait and try again.',
+      locked: 'The session is locked. Unlock the wallet.',
+    },
     duplicate:
       'The previous send has not reached a final status yet. Wait for history reconciliation first; sending again is temporarily blocked.',
     duplicateBlocked:
