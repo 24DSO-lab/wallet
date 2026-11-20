@@ -43,6 +43,21 @@ Provider credentials are read by the Go composition root from environment variab
 | `ETHERSCAN_API_KEY` | Ethereum transaction/history indexer |
 | `TRONGRID_API_KEY` | TRON / Nile API request header |
 
+## Frontend structure
+
+```
+frontend/src/
+  api/         Api contract, in-memory mock and the Wails binding
+  components/  shell, asset tiles and the Settings cards
+  i18n/        ru and en dictionaries (en is typed against ru)
+  lib/         amount, validation, error-code and clipboard helpers
+  stores/      Pinia: session, wallets, send flow, import check, UI feedback
+  views/       one component per route
+  router.ts    hash routes and the session guard
+```
+
+The router only lets a locked session reach `/lock`. Passwords, BIP-39 passphrases and recovery phrases stay in the component that collects them and are cleared when it unmounts; Pinia stores never hold them. Go reports failures as stable error codes, which `lib/errors.ts` maps to translated messages. Every user-facing string lives in `i18n/`; add a key to both dictionaries.
+
 Bitcoin uses the configured public Esplora endpoints. Do not commit API keys or place them in frontend `.env` files.
 
 ## Data and backups
