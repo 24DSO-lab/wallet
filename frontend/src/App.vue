@@ -1,197 +1,51 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import QRCode from 'qrcode'
-import { api } from './api/client'
-import type { Asset, WalletAsset, Profile, Wallet, Tx, Quote, AssetCatalogEntry } from './api/types'
-import { formatAmount } from './lib/amount'
-const router=useRouter(),route=useRoute();const refreshWarnings=ref<Record<string,Record<string,string[]>>>({});const refreshingAssets=ref<Record<string,boolean>>({});const initializing=ref(true),locked=ref(true),profile=ref<Profile>('test'),wallets=ref<Wallet[]>([]),selected=ref(''),page=ref('home'),password=ref(''),error=ref(''),busy=ref(false),history=ref<Tx[]>([]),filter=ref<WalletAsset|'ALL'>('ALL'),sendAsset=ref<WalletAsset>('BTC'),receiveAsset=ref<Asset>('BTC'),recipient=ref(''),amount=ref(''),quote=ref<Quote>(),passphrase=ref(''),passphraseConfirm=ref(''),name=ref('Новый кошелёк'),importAddresses=ref<{asset:Asset,address:string}[]>([]),seed=ref(''),mnemonic=ref(''),wordCount=ref<12|24>(12),mode=ref<'create'|'import'>('create'),step=ref(1),challengePositions=ref<number[]>([]),challengeAnswers=ref<[string,string,string]>(['','','']),qr=ref(''),address=ref(''),timeout=ref(5),newName=ref(''),notice=ref(''),refreshingId=ref(''),revealedSeed=ref(''),revealPassword=ref(''),revealPassphrase=ref(''),deleteConfirmName=ref(''),deletePassword=ref(''),deletePassphrase=ref(''),oldPassword=ref(''),newPassword=ref(''),newPasswordConfirm=ref('');const current=computed(()=>wallets.value.find(w=>w.id===selected.value));const assets:WalletAsset[]=['BTC','ETH','USDC','USDT'];const refreshAssets:Asset[]=[...assets,'TRX'];const seedVisible=ref(false),etherscanConfigured=ref(false),etherscanKey=ref(''),providerBusy=ref(false),providerError=ref(''),receiveBusy=ref(false),receiveError=ref('')
-const clipboard=globalThis.navigator.clipboard
-const assetCatalog=ref<AssetCatalogEntry[]>([])
-function assetMeta(asset:string){return assetCatalog.value.find(item=>item.asset===asset)}
-async function loadAssetCatalog(){try{assetCatalog.value=await api.assetCatalog()}catch{assetCatalog.value=[]}}
-async function copyText(text:string){try{if(!clipboard?.writeText)throw new Error('clipboard unavailable');await clipboard.writeText(text);notice.value='Скопировано в буфер обмена'}catch{notice.value='Не удалось скопировать. Выделите текст и скопируйте вручную.'}}
-async function copyContract(asset:string){const contract=assetMeta(asset)?.contractAddress;if(contract)await copyText(contract)}
-watch(page,p=>{const path=p==='home'?'/':'/'+p;if(route.path!==path)void router.replace(path);if(p==='settings')void loadProviderSettings();if(p!=='settings'){revealedSeed.value='';revealPassword.value='';revealPassphrase.value=''}})
-watch(()=>route.path,p=>{const next=p==='/'?'home':p.slice(1);if(next&&next!==page.value)page.value=next})
-watch(page,(next,previous)=>{if(previous==='wizard'&&next!=='wizard'){void api.cancelCreateWallet().catch(()=>undefined);seed.value='';mnemonic.value='';seedVisible.value=false;challengePositions.value=[];challengeAnswers.value=['','',''];password.value='';passphrase.value='';passphraseConfirm.value=''}if(['send','review','confirm'].includes(previous)&&!['send','review','confirm'].includes(next)){password.value='';passphrase.value=''}})
-async function loadProviderSettings(){providerError.value='';try{const settings=await api.providerSettings();etherscanConfigured.value=settings.etherscanAPIKeyConfigured}catch{providerError.value='Не удалось прочитать настройки провайдера.'}}
-async function saveEtherscanKey(){providerBusy.value=true;providerError.value='';try{await api.saveEtherscanAPIKey(etherscanKey.value);etherscanKey.value='';etherscanConfigured.value=true;notice.value='Ключ защищённо сохранён. Перезапустите приложение, чтобы применить его к Ethereum.'}catch{providerError.value='Не удалось сохранить ключ. Проверьте доступность защищённого хранилища.'}finally{providerBusy.value=false}}
-async function deleteEtherscanKey(){providerBusy.value=true;providerError.value='';try{await api.deleteEtherscanAPIKey();etherscanConfigured.value=false;notice.value='Сохранённый ключ удалён. Перезапустите приложение, чтобы применить изменение.'}catch{providerError.value='Не удалось удалить ключ из защищённого хранилища.'}finally{providerBusy.value=false}}
-function refreshWarningText(code:string){if(code==='refresh_failed')return 'Не удалось обновить этот актив.';if(code.startsWith('history_unavailable:'))return 'История не обновлена; сохранённые записи могут быть устаревшими.';if(code.startsWith('fee_balance_unavailable:'))return 'Источник комиссионного баланса недоступен; последнее сохранённое значение может быть устаревшим.';return 'Часть данных актива недоступна.'}
-function startWizard(){importAddresses.value=[];seed.value='';mnemonic.value='';seedVisible.value=false;challengePositions.value=[];challengeAnswers.value=['','',''];password.value='';passphrase.value='';passphraseConfirm.value='';error.value='';step.value=1;page.value='wizard'}function clearSensitive(){password.value='';passphrase.value='';passphraseConfirm.value='';importAddresses.value=[];seed.value='';mnemonic.value='';seedVisible.value=false;challengePositions.value=[];challengeAnswers.value=['','',''];revealedSeed.value='';revealPassword.value='';revealPassphrase.value='';deleteConfirmName.value='';deletePassword.value='';deletePassphrase.value='';oldPassword.value='';newPassword.value='';newPasswordConfirm.value='';history.value=[];quote.value=undefined;address.value='';qr.value='';recipient.value='';amount.value='';etherscanKey.value='';providerError.value='';providerBusy.value=false;receiveBusy.value=false;receiveError.value='';refreshingId.value='';refreshingAssets.value={};notice.value='';selected.value='';refreshWarnings.value={}}
-async function refresh(){try{const s=await api.session();locked.value=s.locked;profile.value=s.profile;timeout.value=s.timeout;await loadAssetCatalog();if(s.locked){wallets.value=[];if(!initializing.value)clearSensitive();page.value='lock';return}wallets.value=await api.wallets();if(!selected.value&&wallets.value[0])selected.value=wallets.value[0].id}catch(e){error.value=String(e)}finally{initializing.value=false}}
-async function refreshSession(){try{const s=await api.session();if(profile.value!==s.profile){profile.value=s.profile;await loadAssetCatalog()}timeout.value=s.timeout;if(s.locked&&!locked.value){locked.value=true;wallets.value=[];clearSensitive();page.value='lock'}}catch{/* Session polling is best-effort; the next tick retries. */}}
-async function unlock(enteredPassword:string=password.value){busy.value=true;error.value='';try{await api.unlock(enteredPassword);const session=await api.session();if(session.locked)throw Error('UNLOCK_NOT_CONFIRMED');const nextWallets=await api.wallets();locked.value=false;profile.value=session.profile;timeout.value=session.timeout;wallets.value=nextWallets;if(!selected.value&&nextWallets[0])selected.value=nextWallets[0].id;password.value='';page.value='home';void refreshAll()}catch(e){globalThis.console.error('Wallet unlock failed:',e instanceof Error?e.message:'unknown error');locked.value=true;wallets.value=[];error.value='Не удалось разблокировать. Проверьте пароль и состояние локальной сессии.';password.value=''}finally{busy.value=false}}
-async function lock(){await api.lock();locked.value=true;wallets.value=[];clearSensitive();page.value='lock'}
-async function loadHistory(){if(selected.value)history.value=await api.history(selected.value,filter.value==='ALL'?undefined:filter.value)}
-function assetRefreshKey(id:string,asset:Asset){return id+':'+asset}
-function isAssetRefreshing(id:string,asset:Asset){return Boolean(refreshingAssets.value[assetRefreshKey(id,asset)])}
-async function refreshWalletAsset(id:string,asset:Asset,reload=true):Promise<'ok'|'warning'|'failed'>{
- const key=assetRefreshKey(id,asset)
- if(refreshingAssets.value[key])return 'ok'
- refreshingAssets.value={...refreshingAssets.value,[key]:true}
- try{
-  const result=await api.refresh(id,asset)
-  const warnings=result.warnings??[]
-  refreshWarnings.value={...refreshWarnings.value,[id]:{...(refreshWarnings.value[id]??{}),[asset]:warnings}}
-  if(reload)wallets.value=await api.wallets()
-  return warnings.length?'warning':'ok'
- }catch{
-  refreshWarnings.value={...refreshWarnings.value,[id]:{...(refreshWarnings.value[id]??{}),[asset]:['refresh_failed']}}
-  return 'failed'
- }finally{
-  const next={...refreshingAssets.value}
-  delete next[key]
-  refreshingAssets.value=next
- }
-}
-async function refreshWallet(id:string,select=true){
- if(refreshingId.value===id)return
- refreshingId.value=id
- if(select)selected.value=id
- error.value=''
- try{
-  const results=await Promise.all(refreshAssets.map(asset=>refreshWalletAsset(id,asset,false)))
-  const failed=refreshAssets.filter((_,index)=>results[index]==='failed')
-  const partial=results.some(result=>result==='warning')
-  const messages:string[]=[]
-  if(failed.length)messages.push('Не удалось обновить: '+failed.join(', ')+'. Остальные активы обновлены.')
-  if(partial)messages.push('Баланс обновлён, но история или источник комиссионного баланса временно недоступны. Сохранённые вспомогательные данные могут быть устаревшими.')
-  try{wallets.value=await api.wallets()}catch{messages.push('Не удалось перечитать локальные данные кошелька.')}
-  if(messages.length)error.value=messages.join(' ')
- }catch{error.value='Не удалось обновить балансы кошелька.'}
- finally{refreshingId.value=''}
-}
-async function showReceive(a:Asset){
-  if(receiveBusy.value)return
-  receiveAsset.value=a
-  address.value=''
-  qr.value=''
-  receiveError.value=''
-  page.value='receive'
-  receiveBusy.value=true
-  try{
-    const nextAddress=await api.receive(selected.value,a)
-    if(!nextAddress.trim())throw new Error('empty_receive_address')
-    address.value=nextAddress
-    qr.value=await QRCode.toDataURL(nextAddress,{width:220,margin:1})
-  }catch(e){
-    globalThis.console.error('Receive address request failed:',a,e instanceof Error?e.message:'unknown error')
-    receiveError.value=a==='BTC'
-      ?'Не удалось получить BTC-адрес из Bitcoin testnet. Проверьте подключение и повторите попытку.'
-      :'Не удалось получить адрес. Проверьте подключение и повторите попытку.'
-  }finally{
-    receiveBusy.value=false
+import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import AppShell from './components/AppShell.vue'
+import { useSessionStore } from './stores/session'
+import { useWalletsStore } from './stores/wallets'
+
+const REFRESH_INTERVAL_MS = 300_000
+const SESSION_POLL_MS = 15_000
+const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+
+const route = useRoute()
+const router = useRouter()
+const session = useSessionStore()
+const wallets = useWalletsStore()
+
+let refreshTimer: ReturnType<typeof globalThis.setInterval> | undefined
+let pollTimer: ReturnType<typeof globalThis.setInterval> | undefined
+
+// Go can lock the session by itself (idle timeout); follow it to the lock screen.
+watch(
+  () => session.locked,
+  locked => {
+    if (locked && route.name !== 'lock') void router.replace({ name: 'lock' })
+  },
+)
+
+onMounted(() => {
+  for (const event of ACTIVITY_EVENTS) {
+    globalThis.document.addEventListener(event, session.userActivity, { passive: true })
   }
-}
-async function prepareWallet(){
-  error.value=''
-  if(!name.value.trim()){error.value='Укажите название кошелька.';return}
-  busy.value=true
-  try{
-    const result=await api.prepareWallet(name.value.trim(),wordCount.value)
-    mnemonic.value=result.mnemonic
-    challengePositions.value=result.challengePositions
-    challengeAnswers.value=['','','']
-    seedVisible.value=false
-    step.value=4
-  }catch{error.value='Не удалось подготовить seed-фразу.'}
-  finally{busy.value=false}
-}
-async function verifyMnemonic(){
-  error.value=''
-  if(password.value.length<10){error.value='Пароль должен содержать не менее 10 символов.';return}
-  if(passphrase.value!==passphraseConfirm.value){error.value='Парольные фразы BIP39 не совпадают.';return}
-  busy.value=true
-  try{
-    const wallet=await api.confirmCreateWallet(name.value.trim(),password.value,passphrase.value,challengePositions.value,challengeAnswers.value)
-    wallets.value.push(wallet)
-    selected.value=wallet.id
-    await refreshWallet(wallet.id,false)
-    mnemonic.value=''
-    seedVisible.value=false
-    challengePositions.value=[]
-    challengeAnswers.value=['','','']
-    password.value=''
-    passphrase.value=''
-    passphraseConfirm.value=''
-    name.value=''
-    step.value=1
-    page.value='home'
-  }catch{error.value='Проверка seed или создание кошелька не выполнены. Проверьте слова и пароль.'}
-  finally{busy.value=false;password.value='';passphrase.value='';passphraseConfirm.value=''}
-}
-async function createWallet(){
-  error.value=''
-  if(mode.value==='create')return
-  if(!name.value.trim()||password.value.length<10){error.value='Название обязательно, пароль — не менее 10 символов.';return}
-  if(![12,24].includes(seed.value.trim().split(/\s+/).length)){error.value='Введите seed из 12 или 24 слов';return}
-  busy.value=true
-  try{
-    const wallet=await api.importWallet(name.value.trim(),seed.value.trim(),password.value,passphrase.value)
-    wallets.value.push(wallet)
-    selected.value=wallet.id
-    await refreshWallet(wallet.id,false)
-    seed.value=''
-    password.value=''
-    passphrase.value=''
-    name.value=''
-    const addressAssets:Asset[]=['BTC','ETH','USDT']
-    const results=await Promise.allSettled(addressAssets.map(a=>api.receive(wallet.id,a)))
-    importAddresses.value=results.flatMap((result,index)=>{const asset=addressAssets[index];return result.status==='fulfilled'&&asset?[{asset,address:result.value}]:[]})
-    if(results.some(result=>result.status==='rejected'))notice.value='Некоторые адреса не удалось получить. Проверьте подключение к тестовой сети.'
-    page.value='import-check'
-  }catch{error.value='Не удалось импортировать кошелёк. Проверьте seed и пароль.'}
-  finally{busy.value=false;password.value='';passphrase.value='';seed.value=''}
-}
-async function prepare(){error.value='';busy.value=true;try{quote.value=await api.prepare(selected.value,sendAsset.value,recipient.value,amount.value);page.value='review'}catch(e){error.value=String(e).includes('duplicate_send')?'Предыдущая отправка ещё не получила окончательный статус. Сначала дождитесь сверки истории; повторная отправка временно заблокирована.':'Проверьте адрес и сумму.'}finally{busy.value=false}}
-async function prepareRBF(tx:Tx){error.value='';busy.value=true;try{quote.value=await api.prepareRBF(selected.value,tx.id);page.value='review'}catch{error.value='Не удалось подготовить замену. Транзакция могла подтвердиться или уже быть заменена.'}finally{busy.value=false}}
-async function send(){if(!quote.value)return;busy.value=true;try{await api.confirm(quote.value.draftId,password.value,passphrase.value);quote.value=undefined;password.value='';passphrase.value='';await loadHistory();page.value='history'}catch(e){password.value='';passphrase.value='';const message=String(e);if(message.includes('broadcast_unknown')){quote.value=undefined;page.value='history';error.value='Результат отправки пока неизвестен. Транзакция сохранена для проверки. Не отправляйте её повторно; проверьте историю и обозреватель.';await loadHistory().catch(()=>undefined)}else if(message.includes('duplicate_send')){quote.value=undefined;page.value='history';error.value='Предыдущая отправка ещё не получила окончательный статус. Новая отправка заблокирована до сверки транзакции.';await loadHistory().catch(()=>undefined)}else error.value='Операция не подтверждена. Проверьте пароль и парольную фразу; черновик можно подтвердить повторно.'}finally{busy.value=false}}
-async function setProfile(p:Profile){await api.profile(p);profile.value=p;await loadAssetCatalog();await refresh()}async function rename(){if(current.value&&newName.value.trim()){await api.rename(selected.value,newName.value.trim());await refresh();notice.value='Название сохранено'}}async function backup(){try{const created=await api.backup(password.value);notice.value=created?'Резервная копия создана в выбранной папке':'Создание резервной копии отменено'}catch{notice.value='Не удалось создать резервную копию'}finally{password.value=''}}
-async function restoreBackup(){try{const restored=await api.restoreBackup(password.value);if(restored){notice.value='Резервная копия восстановлена';await refresh()}else notice.value='Восстановление отменено'}catch{notice.value='Не удалось восстановить резервную копию. Проверьте архив и пароль.'}finally{password.value=''}}
-async function revealSeed(){if(!current.value)return;try{revealedSeed.value=await api.revealSeed(selected.value,revealPassword.value,revealPassphrase.value)}catch{notice.value='Не удалось показать seed. Проверьте пароль и парольную фразу.'}finally{revealPassword.value='';revealPassphrase.value=''}}
-async function changePassword(){if(newPassword.value.length<10||newPassword.value!==newPasswordConfirm.value){notice.value='Новый пароль должен содержать не менее 10 символов и совпадать в обоих полях.';return}try{await api.changePassword(oldPassword.value,newPassword.value);notice.value='Пароль кошелька изменён'}catch{notice.value='Не удалось изменить пароль. Проверьте старый пароль.'}finally{oldPassword.value='';newPassword.value='';newPasswordConfirm.value=''}}
-async function deleteWallet(){if(!current.value)return;if(deleteConfirmName.value!==current.value.name){notice.value='Введите точное название выбранного кошелька.';return}try{await api.deleteWallet(selected.value,deleteConfirmName.value,deletePassword.value,deletePassphrase.value);wallets.value=wallets.value.filter(w=>w.id!==selected.value);selected.value=wallets.value[0]?.id??'';deleteConfirmName.value='';notice.value='Кошелёк удалён';await refresh()}catch{notice.value='Не удалось удалить кошелёк. Проверьте подтверждение, пароль и парольную фразу.'}finally{deletePassword.value='';deletePassphrase.value=''}}async function copyAddress(){await copyText(address.value)}
-let refreshTimer:ReturnType<typeof globalThis.setInterval>|undefined
-let sessionTimer:ReturnType<typeof globalThis.setInterval>|undefined
-let lastActivityAt=0
-function onUserActivity(){if(locked.value)return;const now=Date.now();if(now-lastActivityAt<5000)return;lastActivityAt=now;void api.keepAlive().catch(()=>undefined)}
-onMounted(async()=>{globalThis.document.addEventListener('pointerdown',onUserActivity,{passive:true});globalThis.document.addEventListener('keydown',onUserActivity);globalThis.document.addEventListener('wheel',onUserActivity,{passive:true});globalThis.document.addEventListener('touchstart',onUserActivity,{passive:true});await refresh();if(!locked.value)void refreshAll();refreshTimer=globalThis.setInterval(()=>{if(!locked.value)void refreshAll()},300000);sessionTimer=globalThis.setInterval(()=>{void refreshSession()},15000)})
-async function refreshAll(){for(const wallet of wallets.value)await refreshWallet(wallet.id,false)}
-onBeforeUnmount(()=>{globalThis.document.removeEventListener('pointerdown',onUserActivity);globalThis.document.removeEventListener('keydown',onUserActivity);globalThis.document.removeEventListener('wheel',onUserActivity);globalThis.document.removeEventListener('touchstart',onUserActivity);if(refreshTimer)globalThis.clearInterval(refreshTimer);if(sessionTimer)globalThis.clearInterval(sessionTimer);void api.cancelCreateWallet().catch(()=>undefined);password.value='';passphrase.value='';passphraseConfirm.value='';seed.value='';mnemonic.value='';challengeAnswers.value=['','',''];challengePositions.value=[];revealedSeed.value='';revealPassword.value='';revealPassphrase.value='';deletePassword.value='';deletePassphrase.value='';oldPassword.value='';newPassword.value='';newPasswordConfirm.value=''})
+  if (!session.locked) void wallets.refreshAll()
+  refreshTimer = globalThis.setInterval(() => {
+    if (!session.locked) void wallets.refreshAll()
+  }, REFRESH_INTERVAL_MS)
+  pollTimer = globalThis.setInterval(() => void session.poll(), SESSION_POLL_MS)
+})
+
+onBeforeUnmount(() => {
+  for (const event of ACTIVITY_EVENTS) globalThis.document.removeEventListener(event, session.userActivity)
+  if (refreshTimer) globalThis.clearInterval(refreshTimer)
+  if (pollTimer) globalThis.clearInterval(pollTimer)
+})
 </script>
-<template><main v-if="locked" class="lock"><section class="card lock-card"><div class="logo">W</div><p class="muted">ЛОКАЛЬНЫЙ НЕКАСТОДИАЛЬНЫЙ КОШЕЛЁК</p><h1>Кошелёк заблокирован</h1><form @submit.prevent="unlock(password)"><label for="wallet-unlock-password">Пароль</label><input id="wallet-unlock-password" v-model="password" type="password" autocomplete="off" autofocus required><p v-if="error" class="error">{{error}}</p><button type="button" class="primary" :disabled="busy||initializing" @click="unlock(password)">Разблокировать</button></form><span class="badge">{{profile==='test'?'ТЕСТОВАЯ СЕТЬ':'ОСНОВНАЯ СЕТЬ'}}</span></section></main><div v-else class="layout"><aside><div class="brand"><b>W</b> Wallet</div><span class="badge" :class="{main:profile==='main'}">{{profile==='test'?'ТЕСТОВАЯ СЕТЬ':'MAINNET'}}</span><nav><button @click="page='home'">⌂ Обзор</button><button @click="startWizard">＋ Добавить кошелёк</button><button @click="page='history';loadHistory()">↔ История</button><button @click="page='settings'">⚙ Настройки</button></nav><button class="quiet" @click="lock">Заблокировать ↪</button></aside><main class="content"><header><div><small>NON-CUSTODIAL DESKTOP WALLET</small><h1>{{page==='home'?'Ваши активы':page==='wizard'?'Добавить кошелёк':page==='receive'?'Получение':page==='send'||page==='review'||page==='confirm'?'Отправка':page==='history'?'История операций':page==='settings'?'Настройки':'Кошелёк'}}</h1></div><span class="network">{{profile==='test'?'Bitcoin testnet · Sepolia · Nile':'Bitcoin · Ethereum · TRON'}}</span></header>
-<section v-if="page==='home'" class="stack"><p v-if="error" class="error">{{error}}</p><div class="heading"><div><h2>Кошельки</h2><p class="muted">Баланс и обновление по каждому активу</p></div><button class="primary" @click="startWizard">＋ Добавить</button></div><article v-for="w in wallets" :key="w.id" class="card"><div class="heading"><h3>{{w.name}}</h3><div class="row"><button class="secondary" :disabled="refreshingId===w.id" @click="refreshWallet(w.id)">{{refreshingId===w.id?'Обновление…':'Обновить балансы'}}</button><button class="quiet" @click="selected=w.id;page='wallet'">Открыть →</button></div></div><div class="assets"><div v-for="b in w.balances" :key="b.asset" class="asset"><small>{{assetMeta(b.asset)?.networkName??b.network}}</small><b>{{b.asset}}</b><small v-if="assetMeta(b.asset)?.kind==='token'" class="muted">{{assetMeta(b.asset)?.standard}} · контракт</small><div v-if="assetMeta(b.asset)?.contractAddress" class="contract-row"><code>{{assetMeta(b.asset)?.contractAddress}}</code><button class="quiet" type="button" @click="copyContract(b.asset)">Копировать</button><a v-if="assetMeta(b.asset)?.contractExplorerUrl" :href="assetMeta(b.asset)?.contractExplorerUrl" target="_blank" rel="noopener noreferrer">Обозреватель</a></div><small v-else class="muted">Нативная монета · без контракта</small><strong v-if="b.updatedAt">{{formatAmount(b.amount,b.decimals)}} <small>{{b.asset}}</small></strong><strong v-else>Баланс не обновлён</strong><small v-if="b.pendingAmount&&b.pendingAmount!=='0'" class="muted">Ожидает подтверждения: {{formatAmount(b.pendingAmount,b.decimals)}} {{b.asset}}</small><small v-if="b.feeAsset" class="muted">Последний известный комиссионный баланс (может быть устаревшим): {{formatAmount(b.feeBalance??'0',b.feeAsset==='ETH'?18:6)}} {{b.feeAsset}}</small><p v-for="warning in refreshWarnings[w.id]?.[b.asset]??[]" :key="warning" class="warning" role="status">{{refreshWarningText(warning)}}</p><small v-if="b.updatedAt" class="muted">Обновлено {{new Date(b.updatedAt).toLocaleTimeString('ru-RU')}}</small><div class="row"><button class="secondary" :disabled="isAssetRefreshing(w.id,b.asset)" @click="refreshWalletAsset(w.id,b.asset)">{{isAssetRefreshing(w.id,b.asset)?'Обновление…':'Обновить'}}</button><button class="secondary" @click="selected=w.id;showReceive(b.asset)">Получить</button></div></div></div></article><div v-if="!wallets.length" class="card empty">Кошельков пока нет. Создайте или импортируйте seed.</div></section>
-<section v-else-if="page==='wizard'" class="stack narrow"><div class="steps">{{step<=2?`Шаг ${step} из 2`:step===3?'Защита импорта':step===4?'Подтверждение seed':'Создание кошелька'}}</div><article class="card stack"><template v-if="step===1"><h2>Как добавить кошелёк?</h2><div class="row"><button :class="{selected:mode==='create'}" @click="mode='create'">Создать новый</button><button :class="{selected:mode==='import'}" @click="mode='import'">Импортировать</button></div><label>Название</label><input v-model="name" autocomplete="off"><button class="primary" @click="step=2">Продолжить</button></template><template v-else-if="step===2"><h2>{{mode==='create'?'Параметры seed':'Импорт seed'}}</h2><p class="warning">Никому не сообщайте seed-фразу. Она даёт полный доступ к средствам.</p><template v-if="mode==='create'"><label>Количество слов</label><select v-model.number="wordCount"><option :value="12">12 слов</option><option :value="24">24 слова</option></select><p class="muted">Фраза будет сгенерирована Go после создания кошелька и показана один раз.</p></template><textarea v-else v-model="seed" rows="4" autocomplete="off" spellcheck="false" placeholder="Введите 12 или 24 слова"></textarea><button class="primary" :disabled="busy" @click="mode==='create'?prepareWallet():step=3">{{mode==='create'?'Сгенерировать seed':'Продолжить'}}</button><p v-if="error" class="error">{{error}}</p></template><template v-else-if="step===3"><h2>Защитите импортируемый кошелёк</h2><label>Пароль (минимум 10 символов)</label><input v-model="password" type="password" autocomplete="off"><label>Парольная фраза BIP39 (необязательно)</label><input v-model="passphrase" type="password" autocomplete="off"><p v-if="error" class="error">{{error}}</p><button class="primary" :disabled="busy" @click="createWallet">{{mode==='create'?'Создать кошелёк':'Импортировать кошелёк'}}</button></template><template v-else-if="step===4"><h2>Запишите seed-фразу</h2><p class="warning">Сохраните её офлайн. Кошелёк ещё не записан в хранилище: он будет создан только после проверки слов.</p><p v-if="seedVisible" class="seed">{{mnemonic}}</p><button class="secondary" @click="seedVisible=!seedVisible">{{seedVisible?'Скрыть фразу':'Показать seed-фразу'}}</button><p class="muted">Фраза скрыта по умолчанию, не копируется автоматически и будет очищена после проверки.</p><button class="primary" :disabled="!seedVisible" @click="step=5;error=''">Перейти к проверке слов</button></template><template v-else><h2>Проверьте запись</h2><p class="muted">Введите слова из seed-фразы по указанным позициям.</p><label v-for="(position,index) in challengePositions" :key="position">Слово №{{position+1}}<input v-model="challengeAnswers[index]" autocomplete="off" autocapitalize="none" spellcheck="false"></label><label>Пароль (минимум 10 символов)</label><input v-model="password" type="password" autocomplete="new-password"><label>Парольная фраза BIP39 (необязательно)</label><input v-model="passphrase" type="password" autocomplete="off"><label>Повторите парольную фразу BIP39</label><input v-model="passphraseConfirm" type="password" autocomplete="off"><p v-if="error" class="error">{{error}}</p><button class="primary" :disabled="busy" @click="verifyMnemonic">Проверить слова и создать кошелёк</button><button class="quiet" @click="step=4;error='';challengeAnswers=['','','']">Показать фразу ещё раз</button></template><button v-if="step<4" class="quiet" @click="step=Math.max(1,step-1)">← Назад</button></article></section>
-<section v-else-if="page==='import-check'" class="stack narrow">
-<article class="card stack">
-<h2>Сверьте первые адреса</h2>
-<p class="muted">Сравните адреса с тем кошельком, из которого импортируете seed-фразу. Для USDC используется тот же адрес Ethereum, для USDT — адрес TRON.</p>
-<div v-for="entry in importAddresses" :key="entry.asset" class="stack">
-<strong>{{entry.asset}}</strong>
-<code class="address">{{entry.address}}</code>
-</div>
-<p v-if="!importAddresses.length" class="error">Адреса получить не удалось. Не отправляйте средства, пока не сверите их.</p>
-<p class="warning">Если адреса не совпадают, возможна другая схема деривации или неверная парольная фраза BIP39. Не используйте этот кошелёк для отправки средств.</p>
-<button class="primary" @click="page='home'">Адреса сверены</button>
-</article>
-</section>
-<section v-else-if="page==='wallet'" class="stack"><div class="heading"><h2>{{current?.name}}</h2><button class="primary" @click="page='send'">Отправить</button></div><div class="assets"><article v-for="b in current?.balances" :key="b.asset" class="card asset"><small>{{assetMeta(b.asset)?.networkName??b.network}}</small><h3>{{b.asset}}</h3><small v-if="assetMeta(b.asset)?.kind==='token'" class="muted">{{assetMeta(b.asset)?.standard}} · контракт</small><div v-if="assetMeta(b.asset)?.contractAddress" class="contract-row"><code>{{assetMeta(b.asset)?.contractAddress}}</code><button class="quiet" type="button" @click="copyContract(b.asset)">Копировать</button><a v-if="assetMeta(b.asset)?.contractExplorerUrl" :href="assetMeta(b.asset)?.contractExplorerUrl" target="_blank" rel="noopener noreferrer">Обозреватель</a></div><small v-else class="muted">Нативная монета · без контракта</small><strong v-if="b.updatedAt">{{formatAmount(b.amount,b.decimals)}} {{b.asset}}</strong><strong v-else>Баланс не обновлён</strong><button class="secondary" @click="showReceive(b.asset)">Получить {{b.asset}}</button></article></div></section>
-<section v-else-if="page==='receive'" class="card narrow stack"><h2>Получить {{receiveAsset}}</h2><p class="warning">Принимайте только {{receiveAsset}} в правильной сети.</p><span class="network">{{receiveAsset==='BTC'?'Bitcoin testnet':receiveAsset==='USDT'||receiveAsset==='TRX'?'TRON Nile':'Ethereum Sepolia'}}</span><p v-if="receiveBusy" class="muted" role="status">{{receiveAsset==='BTC'?'Поиск свободного Bitcoin-адреса в testnet…':'Получение адреса…'}}</p><p v-if="receiveError" class="error" role="alert">{{receiveError}}</p><img v-if="qr" :src="qr" class="qr" alt="QR-код адреса"><code v-if="address" class="seed">{{address}}</code><button v-if="address" class="primary" @click="copyAddress">Скопировать адрес</button><button v-if="receiveError" class="primary" :disabled="receiveBusy" @click="showReceive(receiveAsset)">Повторить</button><button class="quiet" :disabled="receiveBusy" @click="page='wallet'">Назад</button></section>
-<section v-else-if="page==='send'" class="card narrow stack"><h2>Новый перевод</h2><label>Актив</label><select v-model="sendAsset"><option v-for="a in assets" :key="a">{{a}}</option></select><label>Адрес получателя</label><input v-model="recipient" autocomplete="off" spellcheck="false"><label>Сумма</label><input v-model="amount" inputmode="decimal" autocomplete="off"><p v-if="error" class="error">{{error}}</p><button class="primary" :disabled="busy" @click="prepare">Проверить перевод</button></section>
-<section v-else-if="page==='review'&&quote" class="card narrow stack"><h2>{{quote.replacesTxId?'Ускорение Bitcoin-перевода (RBF)':'Проверьте перевод'}}</h2><p v-if="quote.replacesTxId" class="warning">Будет заменена неподтверждённая транзакция {{quote.replacesTxId}}. Получатель и сумма сохраняются; меняется комиссия.</p><dl><dt>Сеть</dt><dd>{{quote.network}}</dd><dt>Актив</dt><dd>{{quote.asset}}</dd><dt>Получатель</dt><dd class="break">{{quote.recipient}}</dd><dt>Сумма</dt><dd>{{quote.amount}} {{quote.asset}}</dd><dt>Комиссия</dt><dd>{{quote.fee}} {{quote.feeAsset}}</dd><template v-if="quote.feeAsset===quote.asset"><dt>Итого</dt><dd>{{quote.total}} {{quote.asset}}</dd></template></dl><p v-for="w in quote.warnings" :key="w" class="warning">{{w}}</p><button class="primary" @click="page='confirm'">Далее</button></section>
-<section v-else-if="page==='confirm'" class="card narrow stack"><h2>Подтверждение</h2><label>Пароль</label><input v-model="password" type="password" autocomplete="off"><label>Парольная фраза BIP39</label><input v-model="passphrase" type="password" autocomplete="off"><p class="warning">Go повторно проверяет намерение, комиссию и подпись.</p><p v-if="error" class="error">{{error}}</p><button class="primary" :disabled="busy" @click="send">Подписать и отправить</button></section>
-<section v-else-if="page==='history'" class="stack"><p v-if="error" class="error">{{error}}</p><div class="heading"><h2>История</h2><select v-model="filter" @change="loadHistory"><option value="ALL">Все активы</option><option v-for="a in assets" :key="a">{{a}}</option></select></div><article class="card"><p v-if="!history.length" class="muted">Операций пока нет.</p><div v-for="tx in history" :key="tx.id" class="tx"><b>{{tx.asset}} · {{tx.direction==='self'?'Между своими':tx.direction==='in'?'Входящая':'Исходящая'}}</b><span>{{tx.amount}} · {{tx.status}}</span><small v-if="tx.timestamp">{{new Date(tx.timestamp).toLocaleString('ru-RU')}}</small><small v-else class="muted">Время пока неизвестно</small><small class="break">TXID: {{tx.id}}</small><small v-if="tx.address" class="break">Адрес: {{tx.address}}</small><small v-if="tx.feeAsset&&tx.fee&&tx.fee!=='0'">Комиссия: {{tx.fee}} {{tx.feeAsset}}</small><small v-else-if="tx.direction!=='in'&&!tx.feeAsset" class="muted">Комиссия пока неизвестна</small><a v-if="tx.explorerUrl" :href="tx.explorerUrl" target="_blank" rel="noopener noreferrer">Открыть в обозревателе</a><button v-if="tx.canReplace" class="secondary" :disabled="busy" @click="prepareRBF(tx)">Ускорить (RBF)</button></div></article></section>
-<section v-else-if="page==='settings'" class="stack narrow">
-<article class="card stack"><h2>Профиль сети</h2><div class="row"><button :class="{selected:profile==='test'}" @click="setProfile('test')">Тестовые сети</button><button :class="{selected:profile==='main'}" disabled title="Доступно после приёмочных гейтов">Основные сети · после приёмки</button></div><p v-if="profile==='test'" class="warning">Bitcoin testnet · Ethereum Sepolia · TRON Nile</p></article>
-<article class="card stack"><h2>Активы и сети</h2><p class="muted">Адреса контрактов загружаются из Go-справочника с учётом выбранного профиля.</p><div v-for="item in assetCatalog" :key="item.asset" class="stack asset-info"><div class="row"><strong>{{item.asset}}</strong><span class="muted">{{item.networkName}}</span></div><template v-if="item.kind==='token'"><small>{{item.standard}} · адрес контракта</small><code class="address">{{item.contractAddress}}</code><div class="row"><button class="secondary" type="button" @click="copyContract(item.asset)">Копировать контракт</button><a v-if="item.contractExplorerUrl" :href="item.contractExplorerUrl" target="_blank" rel="noopener noreferrer">Открыть в обозревателе</a></div></template><template v-else><small class="muted">Нативная монета сети. Контракт отсутствует.</small><a :href="item.explorerUrl" target="_blank" rel="noopener noreferrer">Обозреватель сети</a></template></div></article>
-<article class="card stack"><h2>Ethereum · Etherscan API</h2><p class="muted">Ключ нужен для загрузки истории ETH и переводов USDC в сети Sepolia. Он хранится в защищённом хранилище Windows и никогда не возвращается в интерфейс.</p><p>{{etherscanConfigured?'Ключ настроен':'Ключ не задан'}}</p><label for="etherscan-api-key">API Key</label><input id="etherscan-api-key" v-model="etherscanKey" type="password" autocomplete="new-password" placeholder="Вставьте Etherscan API Key"><div class="row"><button class="secondary" :disabled="providerBusy||!etherscanKey.trim()" @click="saveEtherscanKey">Сохранить ключ</button><button v-if="etherscanConfigured" class="quiet" :disabled="providerBusy" @click="deleteEtherscanKey">Удалить ключ</button></div><p v-if="providerError" class="error">{{providerError}}</p></article>
-<article class="card stack"><h2>Автоблокировка</h2><select v-model.number="timeout" @change="api.timeout(timeout)"><option :value="1">1 минута</option><option :value="5">5 минут</option><option :value="10">10 минут</option><option :value="15">15 минут</option><option :value="30">30 минут</option></select></article>
-<article class="card stack"><h2>Управление кошельком</h2><input v-model="newName" placeholder="Новое название"><button class="secondary" @click="rename">Переименовать выбранный</button></article>
-<article class="card stack"><h2>Резервная копия</h2><label>Пароль кошелька</label><input v-model="password" type="password" autocomplete="off"><div class="row"><button class="secondary" :disabled="!password" @click="backup">Создать копию</button><button class="secondary" :disabled="!password" @click="restoreBackup">Восстановить из копии</button></div><p class="muted">При восстановлении откроется системный выбор ZIP-архива и файла SHA-256 рядом с ним.</p></article>
-<article class="card stack"><h2>Показать seed-фразу</h2><p class="warning">Seed даёт полный доступ ко всем средствам. Показывайте его только в безопасном месте.</p><label>Пароль</label><input v-model="revealPassword" type="password" autocomplete="off"><label>Парольная фраза BIP39 (если задана)</label><input v-model="revealPassphrase" type="password" autocomplete="off"><button class="secondary" :disabled="!current||!revealPassword" @click="revealSeed">Показать seed выбранного кошелька</button><p v-if="revealedSeed" class="seed">{{revealedSeed}}</p><button v-if="revealedSeed" class="quiet" @click="revealedSeed=''">Скрыть seed</button></article>
-<article class="card stack"><h2>Изменить пароль</h2><label>Текущий пароль</label><input v-model="oldPassword" type="password" autocomplete="off"><label>Новый пароль (минимум 10 символов)</label><input v-model="newPassword" type="password" autocomplete="new-password"><label>Повторите новый пароль</label><input v-model="newPasswordConfirm" type="password" autocomplete="new-password"><button class="secondary" :disabled="!oldPassword||!newPassword||!newPasswordConfirm" @click="changePassword">Изменить пароль</button></article>
-<article class="card stack"><h2>Удалить выбранный кошелёк</h2><p class="warning">Удаление необратимо для локальных данных. Убедитесь, что seed сохранён.</p><label>Введите название: {{current?.name}}</label><input v-model="deleteConfirmName" autocomplete="off"><label>Пароль</label><input v-model="deletePassword" type="password" autocomplete="off"><label>Парольная фраза BIP39 (если задана)</label><input v-model="deletePassphrase" type="password" autocomplete="off"><button class="secondary" :disabled="!current||!deletePassword" @click="deleteWallet">Удалить кошелёк</button></article>
-<p v-if="notice" class="muted">{{notice}}</p></section>
-</main></div></template>
+
+<template>
+  <RouterView v-if="route.meta.bare" />
+  <AppShell v-else>
+    <RouterView />
+  </AppShell>
+</template>
