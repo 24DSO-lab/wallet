@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -556,4 +557,56 @@ func TestTransactionForWalletValidatesMissingPrevout(t *testing.T) {
 			t.Fatalf("coinbase input with prevout accepted: %v", err)
 		}
 	})
+}
+
+// failingFirstProvider fails the first `failures` address lookups with err.
+type failingFirstProvider struct {
+	refreshProvider
+	failures int32
+	err      error
+	calls    atomic.Int32
+}
+
+func (p *failingFirstProvider) Do(ctx context.Context, req provider.Request) (*provider.Response, error) {
+	if strings.HasPrefix(req.Path, "/address/") && p.calls.Add(1) <= p.failures {
+		return nil, p.err
+	}
+	return p.refreshProvider.Do(ctx, req)
+}
+
+func TestScannerReceiveAddressRetriesTransientProviderErrors(t *testing.T) {
+	flaky := &failingFirstProvider{failures: 1, err: domain.NewError(domain.CodeProviderRateLimited, errors.New("429"))}
+	api, err := NewEsplora(flaky, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := scanner.ReceiveAddress(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"})
+	if err != nil {
+		t.Fatalf("a single rate-limited lookup must not fail the scan: %v", err)
+	}
+	if got.Index != 0 || got.Used {
+		t.Fatalf("unexpected receive address: %+v", got)
+	}
+}
+
+func TestScannerReceiveAddressDoesNotRetryPermanentErrors(t *testing.T) {
+	flaky := &failingFirstProvider{failures: 1000, err: domain.NewError(domain.CodeProviderBadResponse, errors.New("404"))}
+	api, err := NewEsplora(flaky, domain.ProfileTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewScanner(api, &fakeDeriver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scanner.ReceiveAddress(context.Background(), domain.PublicWallet{ID: "wallet-1", BTCXpub: "tpub-test"}); err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := flaky.calls.Load(); got > maxConcurrentAddressLookups {
+		t.Fatalf("permanent errors were retried: %d lookups", got)
+	}
 }
