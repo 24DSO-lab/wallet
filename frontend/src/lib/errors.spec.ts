@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sendErrorKey } from './errors'
+import { errorCode, sendErrorKey } from './errors'
 
 describe('sendErrorKey', () => {
   it('maps known Go error codes', () => {
@@ -16,5 +16,16 @@ describe('sendErrorKey', () => {
   it('falls back for unknown or mock errors', () => {
     expect(sendErrorKey(new Error('INVALID_SEND'))).toBe('send.invalid')
     expect(sendErrorKey(undefined, 'x')).toBe('x')
+  })
+})
+
+describe('errorCode', () => {
+  it('extracts the stable Go code', () => {
+    expect(errorCode(new Error('wrong_password'))).toBe('wrong_password')
+    expect(errorCode('locked')).toBe('locked')
+  })
+
+  it('falls back to unknown', () => {
+    expect(errorCode(new Error('something else'))).toBe('unknown')
   })
 })

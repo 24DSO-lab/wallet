@@ -16,6 +16,16 @@ const CODE_KEYS: Readonly<Record<string, string>> = {
   locked: 'send.errors.locked',
 }
 
+const KNOWN_CODES = [
+  'wrong_password', 'invalid_input', 'not_found', 'locked', 'session_locked', 'canceled', 'timeout', 'internal',
+] as const
+
+/** Returns the stable Go error code found in `error`, or "unknown". Never contains secrets. */
+export function errorCode(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error)
+  return KNOWN_CODES.find(code => text.includes(code)) ?? 'unknown'
+}
+
 /** Returns the i18n key for the first known error code in `error`, or `fallback`. */
 export function sendErrorKey(error: unknown, fallback = 'send.invalid'): string {
   const text = error instanceof Error ? error.message : String(error)
