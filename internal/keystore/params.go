@@ -3,7 +3,7 @@ package keystore
 import (
 	"time"
 
-	"github.com/24DSO-lab/wallet/internal/keystore/argon2id"
+	"golang.org/x/crypto/argon2"
 )
 
 // Params это параметры Argon2id, которые хранятся в заголовке файла.
@@ -56,7 +56,7 @@ func Calibrate(target time.Duration) Params {
 	for _, mem := range []uint32{minMemoryKiB, 32 * 1024, 64 * 1024, 128 * 1024, calibrateMaxKiB} {
 		p := Params{Time: 3, MemoryKiB: mem, Threads: 1}
 		start := time.Now()
-		argon2id.Key([]byte("calibration"), []byte("calibration-salt"), nil, nil, p.Time, p.MemoryKiB, p.Threads, derivedKeyLen)
+		argon2.IDKey([]byte("calibration"), []byte("calibration-salt"), p.Time, p.MemoryKiB, p.Threads, derivedKeyLen)
 		if time.Since(start) > target {
 			break
 		}

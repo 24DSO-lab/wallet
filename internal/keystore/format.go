@@ -9,7 +9,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/24DSO-lab/wallet/internal/keystore/argon2id"
+	"golang.org/x/crypto/argon2"
+
 	"github.com/24DSO-lab/wallet/internal/secret"
 )
 
@@ -101,7 +102,7 @@ func parseFile(file []byte) (h header, headerBytes, ct []byte, err error) {
 }
 
 func deriveKey(password secret.Bytes, h header) []byte {
-	return argon2id.Key(password.Expose(), h.salt[:], nil, nil, h.params.Time, h.params.MemoryKiB, h.params.Threads, derivedKeyLen)
+	return argon2.IDKey(password.Expose(), h.salt[:], h.params.Time, h.params.MemoryKiB, h.params.Threads, derivedKeyLen)
 }
 
 func newGCM(key []byte) (cipher.AEAD, error) {
