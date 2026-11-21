@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
+import VerifyAddress from '../components/VerifyAddress.vue'
 import { useClipboard } from '../lib/clipboard'
 import { useWalletsStore } from '../stores/wallets'
 
@@ -19,7 +20,14 @@ const address = ref('')
 const qr = ref('')
 const busy = ref(false)
 const error = ref('')
+// Set when the seed-derived check disagrees with the stored data: the address must not be offered.
+const unsafe = ref(false)
+const typedAsset = computed(() => props.asset as Asset)
 const networkName = computed(() => wallets.assetMeta(props.asset)?.networkName ?? '')
+
+function onVerified(verified: boolean): void {
+  unsafe.value = !verified
+}
 
 async function load(): Promise<void> {
   if (busy.value) return
@@ -28,7 +36,7 @@ async function load(): Promise<void> {
   error.value = ''
   busy.value = true
   try {
-    const next = await api.receive(props.id, props.asset as Asset)
+    const next = await api.receive(props.id, typedAsset.value)
     if (!next.trim()) throw new Error('empty_receive_address')
     address.value = next
     qr.value = await QRCode.toDataURL(next, { width: 220, margin: 1 })
@@ -53,9 +61,13 @@ onMounted(() => {
     <span v-if="networkName" class="network">{{ networkName }}</span>
     <p v-if="busy" class="muted" role="status">{{ asset === 'BTC' ? t('receive.searchingBtc') : t('receive.loading') }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <img v-if="qr" :src="qr" class="qr" :alt="t('receive.qrAlt')">
-    <code v-if="address" class="seed">{{ address }}</code>
-    <button v-if="address" class="primary" type="button" @click="copyText(address)">{{ t('receive.copyAddress') }}</button>
+    <p v-if="unsafe" class="error" role="alert">{{ t('receive.unsafe') }}</p>
+    <img v-if="qr && !unsafe" :src="qr" class="qr" :alt="t('receive.qrAlt')">
+    <code v-if="address && !unsafe" class="seed">{{ address }}</code>
+    <button v-if="address && !unsafe" class="primary" type="button" @click="copyText(address)">
+      {{ t('receive.copyAddress') }}
+    </button>
+    <VerifyAddress v-if="address" :wallet-id="id" :asset="typedAsset" @result="onVerified" />
     <button v-if="error" class="primary" type="button" :disabled="busy" @click="load">{{ t('common.retry') }}</button>
     <button class="quiet" type="button" :disabled="busy" @click="router.push({ name: 'wallet', params: { id } })">
       {{ t('common.back') }}

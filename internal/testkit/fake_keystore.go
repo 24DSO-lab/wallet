@@ -23,6 +23,7 @@ const (
 	KeystoreRevealSeed  KeystoreOperation = "reveal_seed"
 	KeystoreDelete      KeystoreOperation = "delete"
 	KeystoreSign        KeystoreOperation = "sign"
+	KeystorePublicKeys  KeystoreOperation = "public_keys"
 )
 
 // FakeKeystoreOptions configures deterministic keystore behavior.
@@ -198,6 +199,23 @@ func (k *FakeKeystore) RevealSeed(ctx context.Context, id string, s ports.Secret
 		return secret.Bytes{}, fmt.Errorf("wallet %q: %w", id, domain.ErrNotFound)
 	}
 	return mnemonic.Clone(), nil
+}
+
+// PublicKeys returns the configured public data of a known wallet after the
+// password check, mirroring the real keystore's re-derivation.
+func (k *FakeKeystore) PublicKeys(ctx context.Context, id string, s ports.Secrets) (ports.PublicKeys, error) {
+	if err := k.before(ctx, KeystorePublicKeys); err != nil {
+		return ports.PublicKeys{}, err
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if err := k.verifyLocked(s); err != nil {
+		return ports.PublicKeys{}, err
+	}
+	if _, ok := k.wallets[id]; !ok {
+		return ports.PublicKeys{}, fmt.Errorf("wallet %q: %w", id, domain.ErrNotFound)
+	}
+	return k.publicKeys, nil
 }
 
 func (k *FakeKeystore) Delete(ctx context.Context, id string, s ports.Secrets) error {

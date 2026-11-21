@@ -92,6 +92,16 @@ export const en: typeof ru = {
     failed: 'Could not get the address. Check your connection and try again.',
     qrAlt: 'Address QR code',
     copyAddress: 'Copy address',
+    unsafe: 'The address is hidden: it did not match the data derived from the seed. Do not use it and do not send funds to it.',
+    verify: {
+      open: 'Verify the address with the wallet keys',
+      hint: 'The address is derived from the seed again and compared with what the database holds. This protects against a tampered database or backup.',
+      submit: 'Verify',
+      running: 'Verifying…',
+      ok: 'Address verified: it matches the data derived from the wallet seed.',
+      mismatch: 'The address does NOT match the seed data. The database or a backup may have been tampered with, or the BIP39 passphrase is wrong. Do not use this address.',
+      failed: 'Could not run the check. Check the password and try again.',
+    },
   },
   send: {
     title: 'New transfer',

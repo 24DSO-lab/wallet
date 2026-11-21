@@ -2,9 +2,41 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
+	"github.com/24DSO-lab/wallet/internal/ports"
+	"github.com/24DSO-lab/wallet/internal/secret"
 )
+
+// VerifyAddresses re-derives the wallet's public data from its seed and reports
+// per network whether it matches what the database shows. It needs the wallet
+// password and, if one was set, the BIP39 passphrase. A false field means the
+// stored data was altered or the passphrase is wrong; the UI must then warn and
+// must not offer the address for receiving funds.
+func (a *App) VerifyAddresses(id, password, passphrase string) (AddressCheckDTO, error) {
+	a.profileMu.RLock()
+	defer a.profileMu.RUnlock()
+	a.transactionMu.RLock()
+	defer a.transactionMu.RUnlock()
+	if err := a.ready(); err != nil {
+		return AddressCheckDTO{}, err
+	}
+	if err := a.requireUnlocked(); err != nil {
+		return AddressCheckDTO{}, err
+	}
+	if password == "" {
+		return AddressCheckDTO{}, errors.New("invalid_input")
+	}
+	result, err := a.currentService().VerifyWalletAddresses(a.context(), id, ports.Secrets{
+		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
+	})
+	if err != nil {
+		return AddressCheckDTO{}, safeError(err)
+	}
+	a.touch()
+	return AddressCheckDTO{Bitcoin: result.Bitcoin, Ethereum: result.Ethereum, Tron: result.Tron}, nil
+}
 
 func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 	a.profileMu.RLock()

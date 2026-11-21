@@ -186,15 +186,7 @@ func (s *Store) Save(ctx context.Context, id string, mnemonic secret.Bytes, sec 
 		return ports.PublicKeys{}, domain.NewError(domain.CodeInvalidInput, err)
 	}
 	defer seed.Wipe()
-	pd, err := hd.DerivePublicData(seed, s.profile)
-	if err != nil {
-		return ports.PublicKeys{}, domain.NewError(domain.CodeInternal, err)
-	}
-	eth, err := s.address(domain.NetworkEthereum, pd.ETHPublicKey[:])
-	if err != nil {
-		return ports.PublicKeys{}, err
-	}
-	tron, err := s.address(domain.NetworkTron, pd.TronPublicKey[:])
+	keys, err := s.derivePublicKeys(seed)
 	if err != nil {
 		return ports.PublicKeys{}, err
 	}
@@ -213,7 +205,49 @@ func (s *Store) Save(ctx context.Context, id string, mnemonic secret.Bytes, sec 
 		return ports.PublicKeys{}, domain.NewError(domain.CodeInternal, err)
 	}
 	s.log.Info("keystore: wallet saved", "wallet", id)
+	return keys, nil
+}
+
+// derivePublicKeys выводит xpub и адреса аккаунтов из seed. Общий код Save и
+// PublicKeys: оба обязаны получать данные одним и тем же путём.
+func (s *Store) derivePublicKeys(seed secret.Bytes) (ports.PublicKeys, error) {
+	pd, err := hd.DerivePublicData(seed, s.profile)
+	if err != nil {
+		return ports.PublicKeys{}, domain.NewError(domain.CodeInternal, err)
+	}
+	eth, err := s.address(domain.NetworkEthereum, pd.ETHPublicKey[:])
+	if err != nil {
+		return ports.PublicKeys{}, err
+	}
+	tron, err := s.address(domain.NetworkTron, pd.TronPublicKey[:])
+	if err != nil {
+		return ports.PublicKeys{}, err
+	}
 	return ports.PublicKeys{BTCXpub: pd.BTCXpub, ETHAddress: eth, TronAddress: tron}, nil
+}
+
+// PublicKeys расшифровывает файл кошелька id и заново выводит публичные данные
+// с учётом парольной фразы BIP39. Ничего не пишет на диск и не возвращает seed.
+func (s *Store) PublicKeys(ctx context.Context, id string, sec ports.Secrets) (ports.PublicKeys, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepare(ctx); err != nil {
+		return ports.PublicKeys{}, err
+	}
+	if !validID(id) {
+		return ports.PublicKeys{}, domain.NewError(domain.CodeInvalidInput, errors.New("keystore: invalid wallet id"))
+	}
+	mnemonic, err := s.open(id, sec.Password)
+	if err != nil {
+		return ports.PublicKeys{}, err
+	}
+	defer mnemonic.Wipe()
+	seed, err := hd.SeedFromMnemonic(mnemonic, sec.Passphrase)
+	if err != nil {
+		return ports.PublicKeys{}, domain.NewError(domain.CodeKeystoreCorrupt, err)
+	}
+	defer seed.Wipe()
+	return s.derivePublicKeys(seed)
 }
 
 // Verify проверяет пароль расшифровкой одного из файлов. Если файлов нет,

@@ -71,6 +71,13 @@ export interface SessionState {
   timeout: number
 }
 
+/** Per network: does the stored public data match the data re-derived from the seed? */
+export interface AddressCheck {
+  bitcoin: boolean
+  ethereum: boolean
+  tron: boolean
+}
+
 export interface ProviderSettings {
   etherscanAPIKeyConfigured: boolean
 }
@@ -99,6 +106,7 @@ export interface Api {
   cancelCreateWallet(): Promise<void>
   importWallet(name: string, mnemonic: string, password: string, passphrase: string): Promise<Wallet>
   receive(id: string, asset: Asset): Promise<string>
+  verifyAddresses(id: string, password: string, passphrase: string): Promise<AddressCheck>
   history(id: string, asset?: WalletAsset): Promise<Tx[]>
   prepare(id: string, asset: WalletAsset, to: string, amount: string): Promise<Quote>
   prepareRBF(walletId: string, txid: string): Promise<Quote>

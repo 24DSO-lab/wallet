@@ -55,6 +55,11 @@ type Keystore interface {
 	// RevealSeed возвращает мнемонику кошелька. Вызывающий обязан затереть её.
 	RevealSeed(ctx context.Context, id string, s Secrets) (secret.Bytes, error)
 
+	// PublicKeys заново выводит публичные данные кошелька id из seed. Нужен для
+	// проверки того, что сохранённые в базе xpub и адреса не подменены: база не
+	// аутентифицирована, а seed не покидает keystore.
+	PublicKeys(ctx context.Context, id string, s Secrets) (PublicKeys, error)
+
 	// Delete удаляет файл кошелька после проверки пароля.
 	Delete(ctx context.Context, id string, s Secrets) error
 

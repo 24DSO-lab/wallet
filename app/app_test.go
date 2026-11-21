@@ -446,3 +446,25 @@ func TestShutdownWaitsForSensitiveOperations(t *testing.T) {
 		t.Fatal("Shutdown did not finish after the sensitive operation completed")
 	}
 }
+
+func TestVerifyAddressesRequiresUnlockedSession(t *testing.T) {
+	a := New()
+	a.svc = &service.Service{}
+
+	if _, err := a.VerifyAddresses("wallet", "password", ""); err == nil || err.Error() != "session_locked" {
+		t.Fatalf("VerifyAddresses on a locked session = %v, want session_locked", err)
+	}
+}
+
+func TestVerifyAddressesRejectsEmptyPasswordBeforeTouchingTheService(t *testing.T) {
+	a := New()
+	a.svc = &service.Service{}
+	a.locked = false
+
+	if _, err := a.VerifyAddresses("wallet", "", ""); err == nil || err.Error() != "invalid_input" {
+		t.Fatalf("VerifyAddresses with an empty password = %v, want invalid_input", err)
+	}
+	if a.lockTimer != nil {
+		t.Fatal("a rejected request must not count as user activity")
+	}
+}

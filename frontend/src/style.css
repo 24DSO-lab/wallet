@@ -428,3 +428,12 @@ code.address {
 a {
   color: #9bbcff;
 }
+
+.success {
+  padding: 11px;
+  border-radius: 8px;
+  background: #1c3326;
+  color: #8fe3b0;
+  font-size: 12px;
+  line-height: 1.5;
+}

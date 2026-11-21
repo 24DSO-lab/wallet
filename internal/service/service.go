@@ -554,6 +554,72 @@ func (s *Service) RevealSeed(ctx context.Context, walletID string, sec ports.Sec
 	return s.keystore.RevealSeed(ctx, wallet.KeystoreID, sec)
 }
 
+// AddressVerification reports, per network, whether the public data kept in
+// the database matches the data re-derived from the wallet seed.
+type AddressVerification struct {
+	Bitcoin  bool
+	Ethereum bool
+	Tron     bool
+}
+
+// VerifyWalletAddresses re-derives the wallet's public data inside the keystore
+// and compares it with what the database holds. The database is not
+// authenticated, so a tampered backup or local edit could otherwise make the
+// UI show an attacker's receive address. A mismatch is a result, not an error:
+// callers must warn the user and must not offer the address. Password and
+// passphrase inputs are consumed and wiped by this method.
+func (s *Service) VerifyWalletAddresses(ctx context.Context, walletID string, sec ports.Secrets) (AddressVerification, error) {
+	unlockData, lockErr := s.lockDataRead()
+	if lockErr != nil {
+		wipeSecrets(sec)
+		return AddressVerification{}, lockErr
+	}
+	defer unlockData()
+
+	defer wipeSecrets(sec)
+	wallet, err := s.store.Wallets().Get(ctx, walletID)
+	if err != nil {
+		return AddressVerification{}, err
+	}
+	derived, err := s.keystore.PublicKeys(ctx, wallet.KeystoreID, sec)
+	if err != nil {
+		return AddressVerification{}, err
+	}
+	result := AddressVerification{
+		Bitcoin:  derived.BTCXpub != "" && wallet.BTCXpub == derived.BTCXpub,
+		Ethereum: derived.ETHAddress != "" && wallet.ETHAddress == derived.ETHAddress,
+		Tron:     derived.TronAddress != "" && wallet.TronAddress == derived.TronAddress,
+	}
+	// The receive screen reads ETH and TRON addresses from the address table,
+	// so every stored row must match as well, not only the wallet record.
+	if result.Ethereum {
+		result.Ethereum, err = s.accountAddressesMatch(ctx, walletID, domain.NetworkEthereum, derived.ETHAddress)
+		if err != nil {
+			return AddressVerification{}, err
+		}
+	}
+	if result.Tron {
+		result.Tron, err = s.accountAddressesMatch(ctx, walletID, domain.NetworkTron, derived.TronAddress)
+		if err != nil {
+			return AddressVerification{}, err
+		}
+	}
+	return result, nil
+}
+
+func (s *Service) accountAddressesMatch(ctx context.Context, walletID string, network domain.Network, want string) (bool, error) {
+	rows, err := s.store.Addresses().List(ctx, walletID, network)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.Address != want {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // GetHistory returns cached history for one wallet and asset. An empty asset
 // returns all assets, as defined by ports.TransactionRepo.
 func (s *Service) GetHistory(ctx context.Context, walletID string, asset domain.Asset) ([]domain.Tx, error) {

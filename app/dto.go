@@ -24,6 +24,14 @@ type ProviderSettingsDTO struct {
 	EtherscanAPIKeyConfigured bool `json:"etherscanAPIKeyConfigured"`
 }
 
+// AddressCheckDTO tells, per network, whether the stored public data of a
+// wallet matches the data re-derived from its seed. It carries no addresses.
+type AddressCheckDTO struct {
+	Bitcoin  bool `json:"bitcoin"`
+	Ethereum bool `json:"ethereum"`
+	Tron     bool `json:"tron"`
+}
+
 type SessionDTO struct {
 	Locked  bool   `json:"locked"`
 	Profile string `json:"profile"`

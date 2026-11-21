@@ -1,4 +1,5 @@
 import type {
+  AddressCheck,
   Api,
   AssetCatalogEntry,
   Balance,
@@ -51,6 +52,8 @@ export function wailsApi(): Api {
     importWallet: (name, mnemonic, password, passphrase) =>
       invoke<Wallet>('ImportWallet', name, mnemonic, password, passphrase),
     receive: (id, asset) => invoke<string>('GetReceiveAddress', id, asset),
+    verifyAddresses: (id, password, passphrase) =>
+      invoke<AddressCheck>('VerifyAddresses', id, password, passphrase),
     history: (id, asset) => invoke<Tx[]>('GetHistory', id, asset ?? ''),
     prepare: (id, asset, to, amount) => invoke<Quote>('PrepareSend', id, asset, to, amount),
     prepareRBF: (walletId, txid) => invoke<Quote>('PrepareRBF', walletId, txid),

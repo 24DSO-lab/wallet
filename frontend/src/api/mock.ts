@@ -187,6 +187,13 @@ export function mockApi(): Api {
       if (!oldPassword || newPassword.length < 10) throw Error('INVALID_PASSWORD')
       await wait()
     },
+    async verifyAddresses(id, password, passphrase) {
+      guard()
+      void passphrase
+      if (!password || !items.some(wallet => wallet.id === id)) throw Error('INVALID_PASSWORD')
+      await wait()
+      return { bitcoin: true, ethereum: true, tron: true }
+    },
     async revealSeed(id, password, passphrase) {
       guard()
       void passphrase

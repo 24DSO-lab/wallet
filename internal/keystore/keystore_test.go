@@ -1084,3 +1084,49 @@ func TestReadFileRejectsOversizeWithoutReadingIt(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestPublicKeysRederivesWhatSaveReturned(t *testing.T) {
+	e := newEnv(t, domain.ProfileMain)
+	saved := e.save("w1", abandon, pwd, "")
+	savedWithPassphrase := e.save("w2", abandon, pwd, passphrase)
+	ctx := context.Background()
+
+	got, err := e.s.PublicKeys(ctx, "w1", secrets(pwd, ""))
+	if err != nil {
+		t.Fatalf("PublicKeys: %v", err)
+	}
+	if got != saved {
+		t.Fatalf("PublicKeys = %+v, want %+v", got, saved)
+	}
+
+	got, err = e.s.PublicKeys(ctx, "w2", secrets(pwd, passphrase))
+	if err != nil || got != savedWithPassphrase {
+		t.Fatalf("PublicKeys with passphrase = %+v, %v; want %+v", got, err, savedWithPassphrase)
+	}
+}
+
+func TestPublicKeysWrongPassphraseGivesDifferentData(t *testing.T) {
+	e := newEnv(t, domain.ProfileMain)
+	saved := e.save("w1", abandon, pwd, passphrase)
+
+	got, err := e.s.PublicKeys(context.Background(), "w1", secrets(pwd, ""))
+	if err != nil {
+		t.Fatalf("PublicKeys: %v", err)
+	}
+	if got.ETHAddress == saved.ETHAddress || got.TronAddress == saved.TronAddress || got.BTCXpub == saved.BTCXpub {
+		t.Fatal("a wrong passphrase must not reproduce the saved public data")
+	}
+}
+
+func TestPublicKeysRejectsBadInput(t *testing.T) {
+	e := newEnv(t, domain.ProfileMain)
+	e.save("w1", abandon, pwd, "")
+	ctx := context.Background()
+
+	_, err := e.s.PublicKeys(ctx, "w1", secrets("wrong password", ""))
+	wantCode(t, err, domain.CodeWrongPassword)
+	_, err = e.s.PublicKeys(ctx, "../w1", secrets(pwd, ""))
+	wantCode(t, err, domain.CodeInvalidInput)
+	_, err = e.s.PublicKeys(ctx, "missing", secrets(pwd, ""))
+	wantCode(t, err, domain.CodeNotFound)
+}

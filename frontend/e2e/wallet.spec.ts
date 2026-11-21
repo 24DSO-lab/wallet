@@ -92,3 +92,18 @@ test('send form explains invalid input before contacting Go', async ({ page }) =
   await page.getByRole('button', { name: 'Проверить перевод' }).click()
   await expect(page.getByRole('alert')).toHaveText('Сумма должна быть больше нуля.')
 })
+
+test('receive screen can verify the address against the wallet keys', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Пароль').fill('test-password')
+  await page.getByRole('button', { name: 'Разблокировать' }).click()
+  await page.getByRole('button', { name: 'Открыть →' }).click()
+  await page.getByRole('button', { name: 'Получить BTC' }).click()
+  await expect(page.getByRole('heading', { name: 'Получить BTC' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Проверить адрес ключами кошелька' }).click()
+  await page.locator('#verify-password').fill('test-password')
+  await page.getByRole('button', { name: 'Проверить', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Адрес подтверждён' })).toBeVisible()
+  await expect(page.locator('#verify-password')).toHaveValue('')
+})
