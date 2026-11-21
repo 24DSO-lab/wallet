@@ -36,6 +36,7 @@ export function wailsApi(): Api {
     assetCatalog: () => invoke<AssetCatalogEntry[]>('GetAssetCatalog'),
     session: () => invoke<SessionState>('GetSession'),
     providerSettings: () => invoke<ProviderSettings>('GetProviderSettings'),
+    logPath: () => invoke<string>('GetLogPath'),
     saveEtherscanAPIKey: key => invoke<void>('SaveEtherscanAPIKey', key),
     deleteEtherscanAPIKey: () => invoke<void>('DeleteEtherscanAPIKey'),
     keepAlive: () => invoke<void>('KeepAlive'),

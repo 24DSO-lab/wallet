@@ -3,6 +3,8 @@ package app
 import (
 	"errors"
 	"net/url"
+	"runtime"
+	"strings"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 )
@@ -51,6 +53,26 @@ func parseAsset(s string) (domain.Asset, error) {
 
 // safeError deliberately exposes only stable error codes, never provider text,
 // file paths, SQL details, or secret-bearing causes.
+// fail records the real cause of a failed facade call in the technical log and
+// returns the sanitized error (a stable code) that crosses the Wails boundary.
+// The logger masks API keys; errors in this code base never carry passwords.
+func (a *App) fail(err error) error {
+	if err == nil {
+		return nil
+	}
+	if a.logger != nil {
+		op := "unknown"
+		if pc, _, _, ok := runtime.Caller(1); ok {
+			if fn := runtime.FuncForPC(pc); fn != nil {
+				name := fn.Name()
+				op = name[strings.LastIndex(name, ".")+1:]
+			}
+		}
+		a.logger.Warn("request failed", "op", op, "code", string(domain.CodeOf(err)), "error", err)
+	}
+	return safeError(err)
+}
+
 func safeError(err error) error {
 	if err == nil {
 		return nil

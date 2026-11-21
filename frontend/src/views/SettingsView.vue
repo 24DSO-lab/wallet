@@ -8,6 +8,7 @@ import BackupCard from '../components/settings/BackupCard.vue'
 import ChangePasswordCard from '../components/settings/ChangePasswordCard.vue'
 import DeleteWalletCard from '../components/settings/DeleteWalletCard.vue'
 import EtherscanKeyCard from '../components/settings/EtherscanKeyCard.vue'
+import LogCard from '../components/settings/LogCard.vue'
 import NetworkProfileCard from '../components/settings/NetworkProfileCard.vue'
 import RenameWalletCard from '../components/settings/RenameWalletCard.vue'
 import RevealSeedCard from '../components/settings/RevealSeedCard.vue'
@@ -70,6 +71,7 @@ watch(
       <AutoLockCard />
       <BackupCard />
       <ChangePasswordCard />
+      <LogCard />
     </template>
     <template v-else>
       <AssetCatalogCard />

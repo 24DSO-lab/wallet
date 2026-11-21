@@ -29,12 +29,12 @@ func (a *App) PrepareSend(walletID, asset, recipient, amount string) (QuoteDTO, 
 	info, _ := da.Info()
 	units, err := domain.ParseDecimal(amount, info.Decimals)
 	if err != nil {
-		return QuoteDTO{}, safeError(err)
+		return QuoteDTO{}, a.fail(err)
 	}
 	intent := domain.SendIntent{Wallet: domain.PublicWallet{ID: walletID}, Asset: da, To: recipient, Amount: units}
 	prepared, err := a.currentService().PrepareSend(a.context(), intent)
 	if err != nil {
-		return QuoteDTO{}, safeError(err)
+		return QuoteDTO{}, a.fail(err)
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -61,7 +61,7 @@ func (a *App) PrepareRBF(walletID, txid string) (QuoteDTO, error) {
 	}
 	replacement, err := a.currentService().PrepareRBF(a.context(), walletID, domain.TxID(txid))
 	if err != nil {
-		return QuoteDTO{}, safeError(err)
+		return QuoteDTO{}, a.fail(err)
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -126,7 +126,7 @@ func (a *App) ConfirmSend(draftID, password, passphrase string) (string, error) 
 	}
 	a.mu.Unlock()
 	if err != nil {
-		return "", safeError(err)
+		return "", a.fail(err)
 	}
 	return string(txid), nil
 }

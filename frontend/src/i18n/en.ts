@@ -261,6 +261,12 @@ export const en: typeof ru = {
       hint: 'Create a new wallet or import an existing one from its seed phrase.',
       action: 'Add wallet',
     },
+    log: {
+      title: 'Technical log',
+      hint: 'The application records failures and error causes in a file, without passwords, seed phrases or keys. Attach it when you report a problem. The latest few files of 2 MB each are kept.',
+      copy: 'Copy path',
+      unavailable: 'The log file is unavailable: the data directory could not be written.',
+    },
     tabs: {
       label: 'Settings sections',
       general: 'General',

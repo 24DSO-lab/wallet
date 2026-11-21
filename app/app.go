@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -30,6 +31,8 @@ type Dependencies struct {
 	GetProviderSettings   func() (bool, error)
 	SaveEtherscanAPIKey   func(string) error
 	DeleteEtherscanAPIKey func() error
+	Logger                *slog.Logger // technical log; nil disables it
+	LogPath               string       // shown in Settings so the file is easy to find
 }
 
 type pendingDraft struct {
@@ -57,6 +60,8 @@ type App struct {
 	getProviderSettings   func() (bool, error)
 	saveEtherscanAPIKey   func(string) error
 	deleteEtherscanAPIKey func() error
+	logger                *slog.Logger
+	logPath               string
 	locked                bool
 	lockTimeout           time.Duration
 	lockTimer             *time.Timer
@@ -84,7 +89,7 @@ func NewWithDependencies(d Dependencies) *App {
 		ctx: context.Background(), svc: d.Service, profile: p,
 		switchProfile: d.SwitchProfile, createBackup: d.CreateBackup, restoreBackup: d.RestoreBackup,
 		getProviderSettings: d.GetProviderSettings, saveEtherscanAPIKey: d.SaveEtherscanAPIKey,
-		deleteEtherscanAPIKey: d.DeleteEtherscanAPIKey,
+		deleteEtherscanAPIKey: d.DeleteEtherscanAPIKey, logger: d.Logger, logPath: d.LogPath,
 		locked:                true, lockTimeout: defaultLockTimeout,
 		drafts: make(map[string]pendingDraft),
 	}

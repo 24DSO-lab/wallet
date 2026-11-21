@@ -26,7 +26,7 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 		Filters: []wailsruntime.FileFilter{{DisplayName: "Wallet backup (*.zip)", Pattern: "*.zip"}},
 	})
 	if err != nil {
-		return false, safeError(err)
+		return false, a.fail(err)
 	}
 	if path == "" {
 		return false, nil
@@ -54,7 +54,7 @@ func (a *App) RestoreBackup(password string) (bool, error) {
 		a.mu.Unlock()
 	}
 	if restoreErr != nil {
-		return false, safeError(restoreErr)
+		return false, a.fail(restoreErr)
 	}
 	if restored == nil {
 		return false, errors.New("restore_failed")
@@ -112,7 +112,7 @@ func (a *App) CreateBackup(password string) (bool, error) {
 		return false, err
 	}
 	if err := a.currentService().VerifyPassword(a.context(), secret.FromString(password)); err != nil {
-		return false, safeError(err)
+		return false, a.fail(err)
 	}
 	a.mu.Lock()
 	create := a.createBackup
@@ -124,7 +124,7 @@ func (a *App) CreateBackup(password string) (bool, error) {
 		Title: "Choose wallet backup folder",
 	})
 	if err != nil {
-		return false, safeError(err)
+		return false, a.fail(err)
 	}
 	if destination == "" {
 		return false, nil
@@ -135,7 +135,7 @@ func (a *App) CreateBackup(password string) (bool, error) {
 	}
 	defer unlockTransaction()
 	if err := create(a.context(), destination); err != nil {
-		return false, safeError(err)
+		return false, a.fail(err)
 	}
 	a.touch()
 	return true, nil

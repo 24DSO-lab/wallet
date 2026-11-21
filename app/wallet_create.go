@@ -33,12 +33,12 @@ func (a *App) PrepareWallet(name string, words int) (PrepareWalletDTO, error) {
 	}
 	mnemonic, err := a.currentService().NewMnemonic(words)
 	if err != nil {
-		return PrepareWalletDTO{}, safeError(err)
+		return PrepareWalletDTO{}, a.fail(err)
 	}
 	positions, err := randomChallengePositions(words)
 	if err != nil {
 		mnemonic.Wipe()
-		return PrepareWalletDTO{}, safeError(err)
+		return PrepareWalletDTO{}, a.fail(err)
 	}
 
 	a.mu.Lock()
@@ -114,7 +114,7 @@ func (a *App) ConfirmCreateWallet(name, password, passphrase string, positions [
 		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
 	})
 	if err != nil {
-		return WalletDTO{}, safeError(err)
+		return WalletDTO{}, a.fail(err)
 	}
 	a.finishPendingWalletConfirmation(true)
 	completed = true
@@ -122,7 +122,7 @@ func (a *App) ConfirmCreateWallet(name, password, passphrase string, positions [
 
 	balances, err := a.currentService().GetBalances(a.context(), wallet.ID)
 	if err != nil {
-		return WalletDTO{}, safeError(err)
+		return WalletDTO{}, a.fail(err)
 	}
 	return walletDTO(wallet, balances), nil
 }
@@ -225,11 +225,11 @@ func (a *App) ImportWallet(name, mnemonic, password, passphrase string) (WalletD
 	}
 	w, err := a.currentService().ImportWallet(a.context(), name, secret.FromString(mnemonic), ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)})
 	if err != nil {
-		return WalletDTO{}, safeError(err)
+		return WalletDTO{}, a.fail(err)
 	}
 	balances, err := a.currentService().GetBalances(a.context(), w.ID)
 	if err != nil {
-		return WalletDTO{}, safeError(err)
+		return WalletDTO{}, a.fail(err)
 	}
 	a.mu.Lock()
 	a.locked = false

@@ -87,6 +87,8 @@ export interface Api {
   assetCatalog(): Promise<AssetCatalogEntry[]>
   session(): Promise<SessionState>
   providerSettings(): Promise<ProviderSettings>
+  /** Path of the technical log file; empty when logging to a file is unavailable. */
+  logPath(): Promise<string>
   saveEtherscanAPIKey(key: string): Promise<void>
   deleteEtherscanAPIKey(): Promise<void>
   keepAlive(): Promise<void>

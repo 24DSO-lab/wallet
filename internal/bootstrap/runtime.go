@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -51,6 +52,7 @@ type Runtime struct {
 	etherscanAPIKey       string
 	keys                  config.APIKeys
 	logger                *slog.Logger
+	logFile               *logging.RotatingFile
 	processLock           *processlock.Lock
 	profiles              map[domain.Profile]profileRuntime
 	active                domain.Profile
@@ -96,10 +98,25 @@ func New() (*Runtime, error) {
 	if savedIndexKey != "" { rawKeys[config.ProviderETHIndex] = savedIndexKey }
 	keys := config.NewAPIKeys(rawKeys)
 	redactor := logging.NewRedactor(keys.Values()...)
-	logger := logging.New(os.Stderr, slog.LevelInfo, redactor)
+	// A Windows GUI process has no console, so stderr alone is invisible. Keep a
+	// size-limited file next to the data; failing to open it must not stop the app.
+	logPath := filepath.Join(baseDir, "logs", "wallet.log")
+	var sink io.Writer = os.Stderr
+	logFile, logErr := logging.OpenRotating(logPath, 2<<20, 3)
+	if logErr == nil {
+		sink = io.MultiWriter(logFile, logging.BestEffort(os.Stderr))
+	} else {
+		logPath = ""
+	}
+	logger := logging.New(sink, slog.LevelInfo, redactor)
+	if logErr != nil {
+		logger.Warn("technical log file is unavailable", "error", logErr)
+	}
+	logger.Info("wallet started", "os", runtime.GOOS, "arch", runtime.GOARCH, "go", runtime.Version(),
+		"profile", string(domain.ProfileTest), "logFile", logPath)
 	rt := &Runtime{
 		baseDir: baseDir, secretPath: secretPath, providerKeyConfigured: rawKeys[config.ProviderETHIndex] != "",
-		etherscanAPIKey: rawKeys[config.ProviderETHIndex], keys: keys, logger: logger,
+		etherscanAPIKey: rawKeys[config.ProviderETHIndex], keys: keys, logger: logger, logFile: logFile,
 		profiles: make(map[domain.Profile]profileRuntime),
 		active: domain.ProfileTest,
 		processLock: instanceLock,
@@ -113,7 +130,7 @@ func New() (*Runtime, error) {
 		Service: initial.service, Profile: domain.ProfileTest,
 		SwitchProfile: rt.switchProfile, CreateBackup: rt.createBackup, RestoreBackup: rt.restoreBackup,
 		GetProviderSettings: rt.getProviderSettings, SaveEtherscanAPIKey: rt.saveEtherscanAPIKey,
-		DeleteEtherscanAPIKey: rt.deleteEtherscanAPIKey,
+		DeleteEtherscanAPIKey: rt.deleteEtherscanAPIKey, Logger: logger, LogPath: logPath,
 	})
 	keepInstanceLock = true
 	return rt, nil
@@ -419,5 +436,9 @@ func (r *Runtime) Shutdown(ctx context.Context) {
 			r.logger.Error("release wallet instance lock", "error", err)
 		}
 		r.processLock = nil
+	}
+	r.logger.Info("wallet stopped")
+	if r.logFile != nil {
+		_ = r.logFile.Close()
 	}
 }

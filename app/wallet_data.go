@@ -32,7 +32,7 @@ func (a *App) VerifyAddresses(id, password, passphrase string) (AddressCheckDTO,
 		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
 	})
 	if err != nil {
-		return AddressCheckDTO{}, safeError(err)
+		return AddressCheckDTO{}, a.fail(err)
 	}
 	a.touch()
 	return AddressCheckDTO{Bitcoin: result.Bitcoin, Ethereum: result.Ethereum, Tron: result.Tron}, nil
@@ -63,7 +63,7 @@ func (a *App) GetReceiveAddress(id, asset string) (string, error) {
 	}
 	address, err := a.currentService().GetReceiveAddress(ctx, id, domainAsset)
 	if err != nil {
-		return "", safeError(err)
+		return "", a.fail(err)
 	}
 	return address.Address, nil
 }
@@ -92,7 +92,7 @@ func (a *App) GetHistory(id, asset string) ([]TxDTO, error) {
 	_, _ = a.currentService().ReconcilePending(a.context())
 	txs, err := a.currentService().GetHistory(a.context(), id, domainAsset)
 	if err != nil {
-		return nil, safeError(err)
+		return nil, a.fail(err)
 	}
 	out := make([]TxDTO, 0, len(txs))
 	for _, tx := range txs {
@@ -129,7 +129,7 @@ func (a *App) RefreshWallet(id, asset string) (BalanceDTO, error) {
 	}
 	snapshot, err := a.currentService().RefreshWallet(ctx, id, da)
 	if err != nil {
-		return BalanceDTO{}, safeError(err)
+		return BalanceDTO{}, a.fail(err)
 	}
 	return snapshotDTO(snapshot), nil
 }

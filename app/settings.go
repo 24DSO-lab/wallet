@@ -35,7 +35,7 @@ func (a *App) SetProfile(profile string) error {
 	}
 	newService, err := change(a.context(), p)
 	if err != nil {
-		return safeError(err)
+		return a.fail(err)
 	}
 	if newService == nil {
 		return errors.New("profile_switch_unavailable")
@@ -178,4 +178,9 @@ func (a *App) SetLockTimeout(minutes int) error {
 	}
 	a.mu.Unlock()
 	return nil
+}
+
+// GetLogPath returns the path of the technical log file (empty when disabled).
+func (a *App) GetLogPath() string {
+	return a.logPath
 }

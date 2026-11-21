@@ -43,6 +43,7 @@ export function mockApi(): Api {
   }
   return {
     async assetCatalog(){await wait();return structuredClone(catalog(net))},
+    async logPath() { await wait(); guard(); return 'C:\\Users\\you\\AppData\\Roaming\\Wallet\\logs\\wallet.log' },
     async providerSettings() { await wait(); guard(); return { etherscanAPIKeyConfigured: etherscanConfigured } },
     async saveEtherscanAPIKey(key) { await wait(); guard(); if (!key.trim()) throw Error('INVALID_INPUT'); etherscanConfigured = true },
     async deleteEtherscanAPIKey() { await wait(); guard(); etherscanConfigured = false },

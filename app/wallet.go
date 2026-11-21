@@ -19,13 +19,13 @@ func (a *App) ListWallets() ([]WalletDTO, error) {
 	}
 	wallets, err := a.currentService().ListWallets(a.context())
 	if err != nil {
-		return nil, safeError(err)
+		return nil, a.fail(err)
 	}
 	out := make([]WalletDTO, 0, len(wallets))
 	for _, w := range wallets {
 		balances, err := a.currentService().GetBalances(a.context(), w.ID)
 		if err != nil {
-			return nil, safeError(err)
+			return nil, a.fail(err)
 		}
 		out = append(out, walletDTO(w, balances))
 	}
@@ -48,7 +48,7 @@ func (a *App) ChangePassword(oldPassword, newPassword string) error {
 		return err
 	}
 	if err := a.currentService().ChangePassword(a.context(), secret.FromString(oldPassword), secret.FromString(newPassword)); err != nil {
-		return safeError(err)
+		return a.fail(err)
 	}
 	a.touch()
 	return nil
@@ -71,7 +71,7 @@ func (a *App) RevealSeed(id, password, passphrase string) (string, error) {
 		Password: secret.FromString(password), Passphrase: secret.FromString(passphrase),
 	})
 	if err != nil {
-		return "", safeError(err)
+		return "", a.fail(err)
 	}
 	defer mnemonic.Wipe()
 	a.touch()
@@ -90,7 +90,7 @@ func (a *App) RenameWallet(id, name string) error {
 		return err
 	}
 	if err := a.currentService().RenameWallet(a.context(), id, name); err != nil {
-		return safeError(err)
+		return a.fail(err)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (a *App) DeleteWallet(id, confirmedName, password, passphrase string) error
 		return err
 	}
 	if err := a.currentService().DeleteWallet(a.context(), id, confirmedName, ports.Secrets{Password: secret.FromString(password), Passphrase: secret.FromString(passphrase)}); err != nil {
-		return safeError(err)
+		return a.fail(err)
 	}
 	return nil
 }

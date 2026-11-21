@@ -31,7 +31,7 @@ func (a *App) GetSession() (SessionDTO, error) {
 	}
 	wallets, err := a.currentService().ListWallets(a.context())
 	if err != nil {
-		return SessionDTO{}, safeError(err)
+		return SessionDTO{}, a.fail(err)
 	}
 	a.mu.Lock()
 	if len(wallets) == 0 {
@@ -55,7 +55,7 @@ func (a *App) Unlock(password string) error {
 		return errors.New("invalid_input")
 	}
 	if err := a.currentService().VerifyPassword(a.context(), secret.FromString(password)); err != nil {
-		return safeError(err)
+		return a.fail(err)
 	}
 	a.mu.Lock()
 	a.locked = false
