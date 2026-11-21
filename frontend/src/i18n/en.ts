@@ -231,7 +231,7 @@ export const en: typeof ru = {
     },
     catalog: {
       title: 'Assets and networks',
-      hint: 'Contract addresses come from the Go catalog for the selected profile.',
+      hint: 'Assets and networks of the selected wallet. Contract addresses come from the Go catalog for the selected profile.',
       contractAddress: 'contract address',
       copyContract: 'Copy contract',
       nativeNote: 'Native coin of the network. There is no contract.',
@@ -255,11 +255,9 @@ export const en: typeof ru = {
       title: 'Auto-lock',
       minutes: 'no minutes | {n} minute | {n} minutes',
     },
-    selected: {
-      title: 'Choose a wallet',
-      hint: 'Rename, show seed phrase and delete below apply to the wallet chosen here.',
-      label: 'Wallet',
-      none: 'No wallets yet.',
+    tabs: {
+      label: 'Settings sections',
+      general: 'General',
     },
     manage: {
       title: 'Wallet management',

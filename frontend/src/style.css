@@ -437,3 +437,25 @@ a {
   font-size: 12px;
   line-height: 1.5;
 }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tab {
+  padding: 0.5rem 1rem;
+  border: 1px solid #30415a;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #7f9cff;
+  border-color: transparent;
+  color: #0b0f19;
+  font-weight: 600;
+}
