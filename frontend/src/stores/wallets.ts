@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { api } from '../api/client'
 import type { Asset, AssetCatalogEntry, Wallet, WalletAsset } from '../api/types'
 import { i18n } from '../i18n'
+import { errorCode } from '../lib/errors'
 import { useUiStore } from './ui'
 
 export const SENDABLE_ASSETS: readonly WalletAsset[] = ['BTC', 'ETH', 'USDC', 'USDT']
@@ -81,8 +82,9 @@ export const useWalletsStore = defineStore('wallets', () => {
       setWarnings(walletId, asset, list)
       if (reload) wallets.value = await api.wallets()
       return list.length ? 'warning' : 'ok'
-    } catch {
-      setWarnings(walletId, asset, ['refresh_failed'])
+    } catch (e) {
+      // The stable Go code tells the user (and us) why the provider call failed.
+      setWarnings(walletId, asset, [`refresh_failed:${errorCode(e)}`])
       return 'failed'
     } finally {
       const next = { ...refreshingAssets.value }

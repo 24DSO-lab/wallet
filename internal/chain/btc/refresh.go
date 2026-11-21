@@ -195,7 +195,7 @@ func (s *Scanner) ReceiveAddress(ctx context.Context, wallet domain.PublicWallet
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			info, err := s.getAddressWithRetry(scanCtx, derived.Address)
+			info, err := s.api.GetAddress(scanCtx, derived.Address)
 			used := info.ChainStats.Funded != 0 || info.ChainStats.Spent != 0 ||
 				info.MempoolStats.Funded != 0 || info.MempoolStats.Spent != 0
 			results <- lookupResult{index: index, address: derived, used: used, err: err}
@@ -259,42 +259,6 @@ func (s *Scanner) ReceiveAddress(ctx context.Context, wallet domain.PublicWallet
 	}
 	cancel()
 	return domain.Address{}, ErrAddressScanLimit
-}
-
-// Public Esplora servers rate-limit bursts and sometimes answer slowly. One
-// failed lookup aborts the whole receive scan, so a transient failure of a
-// single address is retried a few times with a short pause before giving up.
-const (
-	receiveLookupAttempts = 3
-	receiveLookupBackoff  = 500 * time.Millisecond
-)
-
-func transientProviderError(err error) bool {
-	switch domain.CodeOf(err) {
-	case domain.CodeProviderRateLimited, domain.CodeProviderUnavailable, domain.CodeTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s *Scanner) getAddressWithRetry(ctx context.Context, address string) (AddressInfo, error) {
-	var (
-		info AddressInfo
-		err  error
-	)
-	for attempt := 1; attempt <= receiveLookupAttempts; attempt++ {
-		info, err = s.api.GetAddress(ctx, address)
-		if err == nil || !transientProviderError(err) || attempt == receiveLookupAttempts {
-			return info, err
-		}
-		select {
-		case <-ctx.Done():
-			return info, err
-		case <-time.After(time.Duration(attempt) * receiveLookupBackoff):
-		}
-	}
-	return info, err
 }
 
 func (s *Scanner) scanChain(ctx context.Context, wallet domain.PublicWallet, chain domain.AddressChain, tip uint64) ([]domain.Address, *big.Int, *big.Int, []domain.UTXO, []EsploraTx, error) {

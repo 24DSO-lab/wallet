@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/24DSO-lab/wallet/internal/domain"
 	"github.com/24DSO-lab/wallet/internal/provider"
@@ -273,8 +274,45 @@ func (e *Esplora) BroadcastRaw(ctx context.Context, raw []byte) (string, error) 
 	return strings.ToLower(txid), nil
 }
 
+// Public Esplora servers rate-limit bursts and sometimes answer slowly. One
+// failed read aborts a whole balance refresh or receive scan, so idempotent
+// GET requests retry transient failures a few times with a short pause.
+// Broadcasting is a POST and is never retried here.
+const (
+	getAttempts = 3
+	getBackoff  = 500 * time.Millisecond
+)
+
+func transientProviderError(err error) bool {
+	switch domain.CodeOf(err) {
+	case domain.CodeProviderRateLimited, domain.CodeProviderUnavailable, domain.CodeTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Esplora) get(ctx context.Context, path string) (*provider.Response, error) {
+	var (
+		resp *provider.Response
+		err  error
+	)
+	for attempt := 1; attempt <= getAttempts; attempt++ {
+		resp, err = e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: path})
+		if err == nil || !transientProviderError(err) || attempt == getAttempts {
+			return resp, err
+		}
+		select {
+		case <-ctx.Done():
+			return resp, err
+		case <-time.After(time.Duration(attempt) * getBackoff):
+		}
+	}
+	return resp, err
+}
+
 func (e *Esplora) getJSON(ctx context.Context, path string, dst any) error {
-	resp, err := e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: path})
+	resp, err := e.get(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -288,7 +326,7 @@ func (e *Esplora) getJSON(ctx context.Context, path string, dst any) error {
 // null when decoding into a slice, which would otherwise hide an invalid
 // provider response as a valid empty result.
 func (e *Esplora) getJSONArray(ctx context.Context, path string, dst any) error {
-	resp, err := e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: path})
+	resp, err := e.get(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -339,7 +377,7 @@ func ConservativeFeeRate(estimates FeeEstimates) (float64, error) {
 
 // GetTipHeight returns the current best-chain height.
 func (e *Esplora) GetTipHeight(ctx context.Context) (uint64, error) {
-	resp, err := e.client.Do(ctx, provider.Request{Method: http.MethodGet, Path: "/blocks/tip/height"})
+	resp, err := e.get(ctx, "/blocks/tip/height")
 	if err != nil {
 		return 0, err
 	}

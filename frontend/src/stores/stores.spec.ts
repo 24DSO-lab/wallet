@@ -125,7 +125,7 @@ describe('wallets store', () => {
     await session.unlock('test-password')
 
     expect(await wallets.refreshAsset('missing-wallet', 'BTC')).toBe('failed')
-    expect(wallets.warningsFor('missing-wallet', 'BTC')).toEqual(['refresh_failed'])
+    expect(wallets.warningsFor('missing-wallet', 'BTC')).toEqual([expect.stringMatching(/^refresh_failed:/)])
     expect(wallets.isAssetRefreshing('missing-wallet', 'BTC')).toBe(false)
   })
 })

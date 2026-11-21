@@ -15,7 +15,10 @@ const wallets = useWalletsStore()
 const { time } = useDateFormat()
 
 function warningText(code: string): string {
-  if (code === 'refresh_failed') return t('warning.refreshFailed')
+  if (code.startsWith('refresh_failed')) {
+    const reason = code.split(':')[1]
+    return reason ? `${t('warning.refreshFailed')} (${reason})` : t('warning.refreshFailed')
+  }
   if (code.startsWith('history_unavailable:')) return t('warning.historyUnavailable')
   if (code.startsWith('fee_balance_unavailable:')) return t('warning.feeBalanceUnavailable')
   return t('warning.partial')
