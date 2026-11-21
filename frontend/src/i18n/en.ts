@@ -255,6 +255,12 @@ export const en: typeof ru = {
       title: 'Auto-lock',
       minutes: 'no minutes | {n} minute | {n} minutes',
     },
+    selected: {
+      title: 'Choose a wallet',
+      hint: 'Rename, show seed phrase and delete below apply to the wallet chosen here.',
+      label: 'Wallet',
+      none: 'No wallets yet.',
+    },
     manage: {
       title: 'Wallet management',
       newName: 'New name',

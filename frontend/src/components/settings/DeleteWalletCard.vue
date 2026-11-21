@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../../api/client'
 import { useSessionStore } from '../../stores/session'
@@ -40,12 +40,14 @@ async function remove(): Promise<void> {
   }
 }
 
+watch(() => wallets.selectedId, clear)
 onBeforeUnmount(clear)
 </script>
 
 <template>
   <article class="card stack">
     <h2>{{ t('settings.delete.title') }}</h2>
+    <p v-if="wallets.current" class="muted">{{ wallets.current.name }}</p>
     <p class="warning">{{ t('settings.delete.warning') }}</p>
     <label for="delete-name">{{ t('settings.delete.typeName', { name: wallets.current?.name ?? '' }) }}</label>
     <input id="delete-name" v-model="confirmName" autocomplete="off">

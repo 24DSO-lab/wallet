@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../../api/client'
 import { errorCode } from '../../lib/errors'
@@ -38,6 +38,9 @@ async function reveal(): Promise<void> {
   }
 }
 
+// Never keep a phrase on screen for a wallet that is no longer the selected one.
+watch(() => wallets.selectedId, clear)
+
 // The phrase must never outlive the settings screen.
 onBeforeUnmount(clear)
 </script>
@@ -45,6 +48,7 @@ onBeforeUnmount(clear)
 <template>
   <article class="card stack">
     <h2>{{ t('settings.reveal.title') }}</h2>
+    <p v-if="wallets.current" class="muted">{{ wallets.current.name }}</p>
     <p class="warning">{{ t('settings.reveal.warning') }}</p>
     <label for="reveal-password">{{ t('common.password') }}</label>
     <input id="reveal-password" v-model="password" type="password" autocomplete="off">

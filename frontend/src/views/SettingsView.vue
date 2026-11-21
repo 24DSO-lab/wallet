@@ -8,6 +8,7 @@ import EtherscanKeyCard from '../components/settings/EtherscanKeyCard.vue'
 import NetworkProfileCard from '../components/settings/NetworkProfileCard.vue'
 import RenameWalletCard from '../components/settings/RenameWalletCard.vue'
 import RevealSeedCard from '../components/settings/RevealSeedCard.vue'
+import SelectedWalletCard from '../components/settings/SelectedWalletCard.vue'
 </script>
 
 <template>
@@ -16,10 +17,11 @@ import RevealSeedCard from '../components/settings/RevealSeedCard.vue'
     <AssetCatalogCard />
     <EtherscanKeyCard />
     <AutoLockCard />
-    <RenameWalletCard />
     <BackupCard />
-    <RevealSeedCard />
     <ChangePasswordCard />
+    <SelectedWalletCard />
+    <RenameWalletCard />
+    <RevealSeedCard />
     <DeleteWalletCard />
   </section>
 </template>
