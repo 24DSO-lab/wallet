@@ -7,6 +7,7 @@ import { api } from '../api/client'
 import type { Asset } from '../api/types'
 import VerifyAddress from '../components/VerifyAddress.vue'
 import { useClipboard } from '../lib/clipboard'
+import { errorCode, sendErrorKey } from '../lib/errors'
 import { useWalletsStore } from '../stores/wallets'
 
 const props = defineProps<{ id: string; asset: string }>()
@@ -41,8 +42,10 @@ async function load(): Promise<void> {
     address.value = next
     qr.value = await QRCode.toDataURL(next, { width: 220, margin: 1 })
   } catch (e) {
-    globalThis.console.error('Receive address request failed:', props.asset, e instanceof Error ? e.message : 'unknown error')
-    error.value = t('receive.failed')
+    const code = errorCode(e)
+    globalThis.console.error('Receive address request failed:', props.asset, code)
+    const key = sendErrorKey(e, 'receive.failed')
+    error.value = key === 'receive.failed' ? `${t(key)} (${code})` : t(key)
   } finally {
     busy.value = false
   }

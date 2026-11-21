@@ -17,7 +17,7 @@ const CODE_KEYS: Readonly<Record<string, string>> = {
 }
 
 const KNOWN_CODES = [
-  'wrong_password', 'invalid_input', 'not_found', 'locked', 'session_locked', 'canceled', 'timeout', 'internal',
+  'provider_rate_limited', 'provider_unavailable', 'provider_bad_response', 'wrong_password', 'invalid_input', 'not_found', 'locked', 'session_locked', 'canceled', 'timeout', 'internal',
 ] as const
 
 /** Returns the stable Go error code found in `error`, or "unknown". Never contains secrets. */
