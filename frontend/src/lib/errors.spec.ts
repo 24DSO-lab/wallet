@@ -13,6 +13,11 @@ describe('sendErrorKey', () => {
     expect(sendErrorKey('insufficient_fee_coin')).not.toBe('send.errors.insufficientFunds')
   })
 
+  it('maps prepare failures to readable messages', () => {
+    expect(sendErrorKey(new Error('verification_failed'))).toBe('send.errors.verificationFailed')
+    expect(sendErrorKey(new Error('timeout'))).toBe('send.errors.timeout')
+  })
+
   it('falls back for unknown or mock errors', () => {
     expect(sendErrorKey(new Error('INVALID_SEND'))).toBe('send.invalid')
     expect(sendErrorKey(undefined, 'x')).toBe('x')
@@ -27,5 +32,9 @@ describe('errorCode', () => {
 
   it('falls back to unknown', () => {
     expect(errorCode(new Error('something else'))).toBe('unknown')
+  })
+
+  it('passes through any bare snake_case Go code', () => {
+    expect(errorCode(new Error('verification_failed'))).toBe('verification_failed')
   })
 })

@@ -119,6 +119,11 @@ export const en: typeof ru = {
       providerUnavailable: 'The network provider is temporarily unavailable. Try again later.',
       providerRateLimited: 'Too many requests to the provider. Wait and try again.',
       locked: 'The session is locked. Unlock the wallet.',
+      timeout: 'The network is taking too long to answer. Try again.',
+      verificationFailed:
+        'Could not prepare the transfer: its parameters, such as the fee, are outside the allowed limits. Try again later.',
+      draftExpired: 'The transfer draft has expired. Prepare the transfer again.',
+      notFound: 'Wallet not found. Select the wallet again.',
     },
     duplicate:
       'The previous send has not reached a final status yet. Wait for history reconciliation first; sending again is temporarily blocked.',

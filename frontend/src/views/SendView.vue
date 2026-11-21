@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { sendErrorKey } from '../lib/errors'
+import { errorCode, sendErrorKey } from '../lib/errors'
 import { checkSendAmount } from '../lib/validation'
 import { useSendStore } from '../stores/send'
 import { SENDABLE_ASSETS, useWalletsStore } from '../stores/wallets'
@@ -45,7 +45,8 @@ async function prepare(): Promise<void> {
     await send.prepare(wallets.selectedId)
     await router.push({ name: 'review' })
   } catch (e) {
-    error.value = t(sendErrorKey(e))
+    const key = sendErrorKey(e, '')
+    error.value = key ? t(key) : `${t('send.invalid')} (${errorCode(e)})`
   } finally {
     busy.value = false
   }
