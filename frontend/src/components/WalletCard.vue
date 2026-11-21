@@ -21,7 +21,7 @@ function open(): void {
   <article class="card">
     <div class="heading">
       <h3>{{ wallet.name }}</h3>
-      <div class="row">
+      <div class="actions">
         <button
           class="secondary"
           type="button"

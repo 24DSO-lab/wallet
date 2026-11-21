@@ -11,11 +11,7 @@ const wallets = useWalletsStore()
 
 <template>
   <section class="stack">
-    <div class="heading">
-      <div>
-        <h2>{{ t('home.wallets') }}</h2>
-        <p class="muted">{{ t('home.subtitle') }}</p>
-      </div>
+    <div class="toolbar">
       <button class="primary" type="button" @click="router.push({ name: 'wizard' })">＋ {{ t('home.add') }}</button>
     </div>
     <WalletCard v-for="wallet in wallets.wallets" :key="wallet.id" :wallet="wallet" />

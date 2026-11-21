@@ -9,7 +9,7 @@ test('lock screen and test network are visible', async ({ page }) => {
   await page.getByRole('button', { name: 'Разблокировать' }).click()
   await expect(page.getByText('Кошелёк заблокирован')).toBeHidden()
   await expect(page.getByText('ТЕСТОВАЯ СЕТЬ')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ваши активы' })).toBeVisible()
 })
 
 test('receives, sends and shows a transaction in history on the mock profile', async ({ page }) => {
@@ -67,10 +67,10 @@ test('locking returns to the lock screen and hides wallet data', async ({ page }
   await page.goto('/')
   await page.getByLabel('Пароль').fill('test-password')
   await page.getByRole('button', { name: 'Разблокировать' }).click()
-  await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ваши активы' })).toBeVisible()
   await page.getByRole('button', { name: /Заблокировать/ }).click()
   await expect(page.getByText('Кошелёк заблокирован')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Кошельки' })).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Ваши активы' })).toBeHidden()
 })
 
 test('send form explains invalid input before contacting Go', async ({ page }) => {

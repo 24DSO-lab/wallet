@@ -30,11 +30,15 @@ function receive(asset: string): void {
     </div>
     <div class="assets">
       <article v-for="balance in wallet.balances" :key="balance.asset" class="card asset">
-        <small>{{ wallets.assetMeta(balance.asset)?.networkName ?? balance.network }}</small>
-        <h3>{{ balance.asset }}</h3>
+        <div class="asset-head">
+          <h3>{{ balance.asset }}</h3>
+          <small>{{ wallets.assetMeta(balance.asset)?.networkName ?? balance.network }}</small>
+        </div>
+        <strong v-if="balance.updatedAt" class="asset-balance">
+          {{ formatAmount(balance.amount, balance.decimals) }} <span class="unit">{{ balance.asset }}</span>
+        </strong>
+        <strong v-else class="asset-balance stale">{{ t('asset.notUpdated') }}</strong>
         <AssetContract :asset="balance.asset" />
-        <strong v-if="balance.updatedAt">{{ formatAmount(balance.amount, balance.decimals) }} {{ balance.asset }}</strong>
-        <strong v-else>{{ t('asset.notUpdated') }}</strong>
         <button class="secondary" type="button" @click="receive(balance.asset)">
           {{ t('wallet.receive', { asset: balance.asset }) }}
         </button>

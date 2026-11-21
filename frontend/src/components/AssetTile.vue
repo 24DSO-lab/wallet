@@ -29,34 +29,39 @@ function receive(): void {
 
 <template>
   <div class="asset">
-    <small>{{ wallets.assetMeta(balance.asset)?.networkName ?? balance.network }}</small>
-    <b>{{ balance.asset }}</b>
-    <AssetContract :asset="balance.asset" />
-    <strong v-if="balance.updatedAt">
-      {{ formatAmount(balance.amount, balance.decimals) }} <small>{{ balance.asset }}</small>
+    <div class="asset-head">
+      <b>{{ balance.asset }}</b>
+      <small>{{ wallets.assetMeta(balance.asset)?.networkName ?? balance.network }}</small>
+    </div>
+    <strong v-if="balance.updatedAt" class="asset-balance">
+      {{ formatAmount(balance.amount, balance.decimals) }} <span class="unit">{{ balance.asset }}</span>
     </strong>
-    <strong v-else>{{ t('asset.notUpdated') }}</strong>
-    <small v-if="balance.pendingAmount && balance.pendingAmount !== '0'" class="muted">
+    <strong v-else class="asset-balance stale">{{ t('asset.notUpdated') }}</strong>
+    <small v-if="balance.pendingAmount && balance.pendingAmount !== '0'">
       {{ t('asset.pending') }}: {{ formatAmount(balance.pendingAmount, balance.decimals) }} {{ balance.asset }}
     </small>
-    <small v-if="balance.feeAsset" class="muted">
+    <small v-if="balance.feeAsset">
       {{ t('asset.feeBalance') }}:
       {{ formatAmount(balance.feeBalance ?? '0', balance.feeAsset === 'ETH' ? 18 : 6) }} {{ balance.feeAsset }}
     </small>
     <p v-for="code in wallets.warningsFor(walletId, balance.asset)" :key="code" class="warning" role="status">
       {{ warningText(code) }}
     </p>
-    <small v-if="balance.updatedAt" class="muted">{{ t('asset.updatedAt', { time: time(balance.updatedAt) }) }}</small>
-    <div class="row">
+    <AssetContract :asset="balance.asset" />
+    <small v-if="balance.updatedAt">{{ t('asset.updatedAt', { time: time(balance.updatedAt) }) }}</small>
+    <div class="asset-actions">
+      <button class="secondary" type="button" @click="receive">{{ t('asset.receive') }}</button>
       <button
-        class="secondary"
+        class="secondary icon-btn"
         type="button"
         :disabled="wallets.isAssetRefreshing(walletId, balance.asset)"
+        :aria-label="t('common.refresh')"
+        :title="t('common.refresh')"
+        :aria-busy="wallets.isAssetRefreshing(walletId, balance.asset)"
         @click="wallets.refreshAsset(walletId, balance.asset)"
       >
-        {{ wallets.isAssetRefreshing(walletId, balance.asset) ? t('common.refreshing') : t('common.refresh') }}
+        {{ wallets.isAssetRefreshing(walletId, balance.asset) ? '…' : '↻' }}
       </button>
-      <button class="secondary" type="button" @click="receive">{{ t('asset.receive') }}</button>
     </div>
   </div>
 </template>

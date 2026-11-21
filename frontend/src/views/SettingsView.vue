@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import AddWalletCard from '../components/settings/AddWalletCard.vue'
 import AssetCatalogCard from '../components/settings/AssetCatalogCard.vue'
 import AutoLockCard from '../components/settings/AutoLockCard.vue'
 import BackupCard from '../components/settings/BackupCard.vue'
@@ -63,6 +64,7 @@ watch(
     </div>
 
     <template v-if="isGeneral">
+      <AddWalletCard />
       <NetworkProfileCard />
       <EtherscanKeyCard />
       <AutoLockCard />

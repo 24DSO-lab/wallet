@@ -27,7 +27,6 @@ export const en: typeof ru = {
   nav: {
     label: 'Main navigation',
     home: 'Overview',
-    addWallet: 'Add wallet',
     history: 'History',
     settings: 'Settings',
     lock: 'Lock',
@@ -50,8 +49,6 @@ export const en: typeof ru = {
     failed: 'Could not unlock. Check the password and the local session state.',
   },
   home: {
-    wallets: 'Wallets',
-    subtitle: 'Balance and refresh for each asset',
     add: 'Add',
     open: 'Open',
     refreshBalances: 'Refresh balances',
@@ -60,10 +57,9 @@ export const en: typeof ru = {
   asset: {
     contract: 'contract',
     explorer: 'Explorer',
-    native: 'Native coin · no contract',
     notUpdated: 'Balance not refreshed',
     pending: 'Pending confirmation',
-    feeBalance: 'Last known fee balance (may be stale)',
+    feeBalance: 'For fees (may be stale)',
     updatedAt: 'Updated {time}',
     receive: 'Receive',
   },
@@ -254,6 +250,11 @@ export const en: typeof ru = {
     autolock: {
       title: 'Auto-lock',
       minutes: 'no minutes | {n} minute | {n} minutes',
+    },
+    addWallet: {
+      title: 'Add a wallet',
+      hint: 'Create a new wallet or import an existing one from its seed phrase.',
+      action: 'Add wallet',
     },
     tabs: {
       label: 'Settings sections',
