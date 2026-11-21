@@ -271,7 +271,8 @@ export const en: typeof ru = {
       created: 'The backup was created in the selected folder',
       cancelled: 'Backup creation cancelled',
       failed: 'Could not create the backup',
-      restored: 'The backup was restored',
+      restored:
+        'The backup was restored. Verify the receive addresses of your wallets: the Receive screen can check them against the seed.',
       restoreCancelled: 'Restore cancelled',
       restoreFailed: 'Could not restore the backup. Check the archive and the password.',
     },
