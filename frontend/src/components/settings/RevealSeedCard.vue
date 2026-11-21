@@ -2,29 +2,36 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../../api/client'
-import { useUiStore } from '../../stores/ui'
+import { errorCode } from '../../lib/errors'
 import { useWalletsStore } from '../../stores/wallets'
 
 const { t } = useI18n()
-const ui = useUiStore()
 const wallets = useWalletsStore()
 
 const password = ref('')
 const passphrase = ref('')
 const revealed = ref('')
+const error = ref('')
 
 function clear(): void {
   password.value = ''
   passphrase.value = ''
   revealed.value = ''
+  error.value = ''
 }
 
 async function reveal(): Promise<void> {
   if (!wallets.current) return
+  error.value = ''
+  revealed.value = ''
   try {
     revealed.value = await api.revealSeed(wallets.current.id, password.value, passphrase.value)
-  } catch {
-    ui.notice = t('settings.reveal.failed')
+  } catch (e) {
+    const code = errorCode(e)
+    globalThis.console.error('Reveal seed failed:', code)
+    if (code === 'wrong_password') error.value = t('settings.reveal.wrongPassword')
+    else if (code === 'locked' || code === 'session_locked') error.value = t('send.errors.locked')
+    else error.value = `${t('settings.reveal.failed')} (${code})`
   } finally {
     password.value = ''
     passphrase.value = ''
@@ -46,6 +53,7 @@ onBeforeUnmount(clear)
     <button class="secondary" type="button" :disabled="!wallets.current || !password" @click="reveal">
       {{ t('settings.reveal.show') }}
     </button>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="revealed" class="seed">{{ revealed }}</p>
     <button v-if="revealed" class="quiet" type="button" @click="revealed = ''">{{ t('settings.reveal.hide') }}</button>
   </article>

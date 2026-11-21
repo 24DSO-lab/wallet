@@ -281,6 +281,7 @@ export const en: typeof ru = {
       warning: 'The seed gives full access to all funds. Show it only in a safe place.',
       show: 'Show the seed of the selected wallet',
       hide: 'Hide seed',
+      wrongPassword: 'Wrong password.',
       failed: 'Could not show the seed. Check the password and the passphrase.',
     },
     password: {
